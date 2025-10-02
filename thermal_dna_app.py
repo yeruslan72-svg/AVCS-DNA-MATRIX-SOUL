@@ -79,10 +79,12 @@ with col1:
         st.session_state.damper_forces = {damper: IndustrialConfig.DAMPER_FORCES['standby'] for damper in IndustrialConfig.MR_DAMPERS.keys()}
         st.session_state.damper_history = pd.DataFrame(columns=list(IndustrialConfig.MR_DAMPERS.keys()))
         st.session_state.risk_history = []
+        st.rerun()
 with col2:
     if st.button("🛑 Emergency Stop", use_container_width=True):
         st.session_state.system_running = False
         st.session_state.damper_forces = {damper: 0 for damper in IndustrialConfig.MR_DAMPERS.keys()}
+        st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📊 System Status")
@@ -104,63 +106,73 @@ st.sidebar.metric("System Cost", "$250,000")
 st.sidebar.metric("Typical ROI", ">2000%")
 st.sidebar.metric("Payback Period", "<3 months")
 
-# --- DASHBOARD ---
-st.subheader("📈 Vibration Monitoring")
-vib_chart = st.empty()
-vib_status = st.empty()
+# --- MAIN DISPLAY AREA ---
+if not st.session_state.system_running:
+    st.info("🚀 System is ready. Click 'Start System' to begin monitoring.")
+else:
+    # --- DASHBOARD LAYOUT ---
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📈 Vibration Monitoring")
+        vib_chart = st.empty()
+        vib_status = st.empty()
 
-st.subheader("🌡️ Thermal Monitoring")
-temp_chart = st.empty()
-temp_status = st.empty()
+        st.subheader("🌡️ Thermal Monitoring")
+        temp_chart = st.empty()
+        temp_status = st.empty()
 
-st.subheader("🔊 Acoustic Monitoring")
-noise_chart = st.empty()
-noise_status = st.empty()
+    with col2:
+        st.subheader("🔊 Acoustic Monitoring")
+        noise_chart = st.empty()
+        noise_status = st.empty()
 
-st.markdown("---")
-st.subheader("🔄 MR Dampers Control")
-damper_chart = st.empty()
-damper_status_display = st.empty()
+        st.subheader("🔄 MR Dampers Control")
+        damper_chart = st.empty()
+        damper_status_display = st.empty()
 
-st.subheader("🤖 AI Fusion Analysis")
-fusion_col1, fusion_col2, fusion_col3, fusion_col4 = st.columns([2, 1, 1, 1])
-with fusion_col1:
-    fusion_chart = st.empty()
-with fusion_col2:
-    gauge_placeholder = st.empty()
-with fusion_col3:
-    ai_confidence = st.empty()
-with fusion_col4:
-    rul_display = st.empty()
+    st.markdown("---")
+    
+    # AI Fusion Analysis Section
+    st.subheader("🤖 AI Fusion Analysis")
+    fusion_col1, fusion_col2, fusion_col3, fusion_col4 = st.columns([2, 1, 1, 1])
+    
+    # Initialize placeholders for AI section
+    fusion_chart_ph = fusion_col1.empty()
+    gauge_ph = fusion_col2.empty()
+    ai_conf_ph = fusion_col3.empty()
+    rul_ph = fusion_col4.empty()
 
-# --- MAIN LOOP ---
-if st.session_state.system_running:
+    # --- SIMULATION LOOP ---
     progress_bar = st.sidebar.progress(0)
     cycle_counter = st.sidebar.empty()
-
-    for cycle in range(100):
-        if not st.session_state.system_running:
-            break
-
+    
+    max_cycles = 100
+    current_cycle = 0
+    
+    while current_cycle < max_cycles and st.session_state.system_running:
         # --- DATA GENERATION ---
-        if cycle < 30:
-            vibration = {k: 1.0 + np.random.normal(0, 0.2) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
-            temperature = {k: 65 + np.random.normal(0, 3) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
-            noise = 65 + np.random.normal(0, 2)
-        elif cycle < 60:
-            degradation = (cycle - 30) * 0.05
-            vibration = {k: 1.0 + degradation + np.random.normal(0, 0.3) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
-            temperature = {k: 65 + degradation * 2 + np.random.normal(0, 4) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
-            noise = 70 + degradation * 2 + np.random.normal(0, 3)
+        if current_cycle < 30:
+            # Normal operation
+            vibration = {k: max(0.1, 1.0 + np.random.normal(0, 0.2)) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
+            temperature = {k: max(20, 65 + np.random.normal(0, 3)) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
+            noise = max(30, 65 + np.random.normal(0, 2))
+        elif current_cycle < 60:
+            # Gradual degradation
+            degradation = (current_cycle - 30) * 0.05
+            vibration = {k: max(0.1, 1.0 + degradation + np.random.normal(0, 0.3)) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
+            temperature = {k: max(20, 65 + degradation * 2 + np.random.normal(0, 4)) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
+            noise = max(30, 70 + degradation * 2 + np.random.normal(0, 3))
         else:
-            vibration = {k: 5.0 + np.random.normal(0, 0.5) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
-            temperature = {k: 95 + np.random.normal(0, 5) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
-            noise = 95 + np.random.normal(0, 5)
+            # Critical condition
+            vibration = {k: max(0.1, 5.0 + np.random.normal(0, 0.5)) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
+            temperature = {k: max(20, 95 + np.random.normal(0, 5)) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
+            noise = max(30, 95 + np.random.normal(0, 5))
 
         # Save data
-        st.session_state.vibration_data.loc[cycle] = vibration
-        st.session_state.temperature_data.loc[cycle] = temperature
-        st.session_state.noise_data.loc[cycle] = [noise]
+        st.session_state.vibration_data.loc[current_cycle] = vibration
+        st.session_state.temperature_data.loc[current_cycle] = temperature
+        st.session_state.noise_data.loc[current_cycle] = [noise]
 
         # AI Analysis
         features = list(vibration.values()) + list(temperature.values()) + [noise]
@@ -174,7 +186,7 @@ if st.session_state.system_running:
         # Save risk history for chart
         st.session_state.risk_history.append(risk_index)
 
-        # Damper control
+        # Damper control logic
         if ai_prediction == -1 or risk_index > 80:
             damper_force = IndustrialConfig.DAMPER_FORCES['critical']
             system_status = "🚨 CRITICAL"
@@ -193,32 +205,33 @@ if st.session_state.system_running:
             status_color = "blue"
 
         st.session_state.damper_forces = {d: damper_force for d in IndustrialConfig.MR_DAMPERS.keys()}
-        st.session_state.damper_history.loc[cycle] = st.session_state.damper_forces
+        st.session_state.damper_history.loc[current_cycle] = st.session_state.damper_forces
 
-        # --- DISPLAY ---
-        # Vibration
+        # --- UPDATE DISPLAYS ---
+        
+        # Vibration Monitoring
         vib_chart.line_chart(st.session_state.vibration_data, height=200)
-        with vib_status:
+        with vib_status.container():
             for k, v in vibration.items():
                 color = "🟢" if v < 2 else "🟡" if v < 4 else "🔴"
                 st.write(f"{color} {IndustrialConfig.VIBRATION_SENSORS[k]}: {v:.1f} mm/s")
 
-        # Temperature
+        # Temperature Monitoring
         temp_chart.line_chart(st.session_state.temperature_data, height=200)
-        with temp_status:
+        with temp_status.container():
             for k, v in temperature.items():
                 color = "🟢" if v < 70 else "🟡" if v < 85 else "🔴"
                 st.write(f"{color} {IndustrialConfig.THERMAL_SENSORS[k]}: {v:.0f} °C")
 
-        # Noise
+        # Noise Monitoring
         noise_chart.line_chart(st.session_state.noise_data, height=200)
-        with noise_status:
+        with noise_status.container():
             color = "🟢" if noise < 70 else "🟡" if noise < 85 else "🔴"
             st.write(f"{color} Noise Level: {noise:.1f} dB")
 
-        # Dampers
+        # Dampers Display
         damper_chart.line_chart(st.session_state.damper_history, height=200)
-        with damper_status_display:
+        with damper_status_display.container():
             cols = st.columns(4)
             for i, (d, loc) in enumerate(IndustrialConfig.MR_DAMPERS.items()):
                 with cols[i]:
@@ -230,8 +243,8 @@ if st.session_state.system_running:
                     else:
                         st.success(f"🟢 {loc}\n{force} N")
 
-        # AI Fusion Analysis
-        with fusion_col1:
+        # AI Fusion Analysis - UPDATED WITH PROPER PLACEHOLDERS
+        with fusion_chart_ph.container():
             if len(st.session_state.risk_history) > 0:
                 risk_df = pd.DataFrame({
                     'Risk Index': st.session_state.risk_history,
@@ -240,7 +253,7 @@ if st.session_state.system_running:
                 })
                 st.line_chart(risk_df, height=200)
 
-        with fusion_col2:
+        with gauge_ph.container():
             gauge_fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=risk_index,
@@ -260,25 +273,34 @@ if st.session_state.system_running:
                     }
                 }
             ))
-            gauge_placeholder.plotly_chart(gauge_fig, use_container_width=True)
+            gauge_fig.update_layout(height=250)
+            st.plotly_chart(gauge_fig, use_container_width=True, key=f"gauge_{current_cycle}")
 
-        with fusion_col3:
-            ai_confidence.metric("🤖 AI Confidence", f"{abs(ai_conf):.2f}")
+        with ai_conf_ph.container():
+            st.metric("🤖 AI Confidence", f"{abs(ai_conf):.2f}")
 
-        with fusion_col4:
+        with rul_ph.container():
             if rul_hours < 24:
-                rul_display.error(f"⏳ RUL\n{rul_hours} h")
+                st.error(f"⏳ RUL\n{rul_hours} h")
             elif rul_hours < 72:
-                rul_display.warning(f"⏳ RUL\n{rul_hours} h")
+                st.warning(f"⏳ RUL\n{rul_hours} h")
             else:
-                rul_display.success(f"⏳ RUL\n{rul_hours} h")
+                st.success(f"⏳ RUL\n{rul_hours} h")
 
+        # Update status
         status_indicator.markdown(f"<h3 style='color: {status_color};'>{system_status}</h3>", unsafe_allow_html=True)
 
-        progress_bar.progress((cycle + 1) / 100)
-        cycle_counter.text(f"🔄 Cycle: {cycle+1}/100")
+        # Update progress
+        progress_bar.progress((current_cycle + 1) / max_cycles)
+        cycle_counter.text(f"🔄 Cycle: {current_cycle+1}/{max_cycles}")
 
-        time.sleep(0.3)
+        current_cycle += 1
+        time.sleep(0.5)
+
+    # Simulation complete
+    if current_cycle >= max_cycles:
+        st.success("✅ Simulation completed successfully!")
+        st.session_state.system_running = False
 
 st.markdown("---")
 st.caption("AVCS DNA Industrial Monitor v5.2 | Yeruslan Technologies | Predictive Maintenance System")
