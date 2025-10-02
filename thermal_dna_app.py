@@ -1,9 +1,10 @@
-# thermal_dna_app.py - AVCS DNA Industrial Monitor v5.1 (FIXED)
+# thermal_dna_app.py - AVCS DNA Industrial Monitor v5.2
 import streamlit as st
 import numpy as np
 import pandas as pd
 import time
 from sklearn.ensemble import IsolationForest
+import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="AVCS DNA Industrial Monitor", layout="wide")
@@ -40,7 +41,7 @@ class IndustrialConfig:
 
 
 # --- HEADER ---
-st.title("🏭 AVCS DNA - Industrial Monitoring System v5.1")
+st.title("🏭 AVCS DNA - Industrial Monitoring System v5.2")
 st.markdown("**Active Vibration Control System with AI-Powered Predictive Maintenance**")
 
 # --- STATE INIT ---
@@ -126,7 +127,7 @@ fusion_col1, fusion_col2, fusion_col3, fusion_col4 = st.columns([2, 1, 1, 1])
 with fusion_col1:
     fusion_chart = st.empty()
 with fusion_col2:
-    risk_indicator = st.empty()
+    gauge_placeholder = st.empty()
 with fusion_col3:
     ai_confidence = st.empty()
 with fusion_col4:
@@ -229,7 +230,7 @@ if st.session_state.system_running:
                     else:
                         st.success(f"🟢 {loc}\n{force} N")
 
-        # AI Fusion Analysis - FIXED (no plotly)
+        # AI Fusion Analysis
         with fusion_col1:
             if len(st.session_state.risk_history) > 0:
                 risk_df = pd.DataFrame({
@@ -240,12 +241,26 @@ if st.session_state.system_running:
                 st.line_chart(risk_df, height=200)
 
         with fusion_col2:
-            if risk_index > 80:
-                risk_indicator.error(f"🔴 Risk\n{risk_index}/100")
-            elif risk_index > 50:
-                risk_indicator.warning(f"🟡 Risk\n{risk_index}/100")
-            else:
-                risk_indicator.success(f"🟢 Risk\n{risk_index}/100")
+            gauge_fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=risk_index,
+                title={'text': "Risk Index"},
+                gauge={
+                    'axis': {'range': [0, 100]},
+                    'bar': {'color': "darkblue"},
+                    'steps': [
+                        {'range': [0, 50], 'color': "green"},
+                        {'range': [50, 80], 'color': "yellow"},
+                        {'range': [80, 100], 'color': "red"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "black", 'width': 4},
+                        'thickness': 0.75,
+                        'value': risk_index
+                    }
+                }
+            ))
+            gauge_placeholder.plotly_chart(gauge_fig, use_container_width=True)
 
         with fusion_col3:
             ai_confidence.metric("🤖 AI Confidence", f"{abs(ai_conf):.2f}")
@@ -266,4 +281,4 @@ if st.session_state.system_running:
         time.sleep(0.3)
 
 st.markdown("---")
-st.caption("AVCS DNA Industrial Monitor v5.1 | Yeruslan Technologies | Predictive Maintenance System")
+st.caption("AVCS DNA Industrial Monitor v5.2 | Yeruslan Technologies | Predictive Maintenance System")
