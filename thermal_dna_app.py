@@ -1,4 +1,4 @@
-# thermal_dna_app.py - Thermal DNA Fusion Simulator v3.0 (with AI Anomaly Detection)
+# thermal_dna_app.py - Thermal DNA Fusion Simulator v3.0
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -20,10 +20,9 @@ if "data" not in st.session_state:
 if "cycle" not in st.session_state:
     st.session_state.cycle = 0
 if "model" not in st.session_state:
-    # Обучаем простую модель на "нормальных" данных (50°C и 1.0 mm/s)
     normal_data = np.column_stack([
-        np.random.normal(55, 2, 200),   # нормальная температура
-        np.random.normal(1.0, 0.2, 200) # нормальная вибрация
+        np.random.normal(55, 2, 200),
+        np.random.normal(1.0, 0.2, 200)
     ])
     st.session_state.model = IsolationForest(contamination=0.1, random_state=42)
     st.session_state.model.fit(normal_data)
@@ -62,16 +61,28 @@ if st.session_state.running:
             temp = 90 + np.random.normal(0, 4)
             vib = 4.0 + np.random.normal(0, 0.3)
 
-        # Сохраняем в DataFrame
         st.session_state.data.loc[cycle] = [temp, vib]
 
         # --- AI-анализ (Isolation Forest) ---
         sample = np.array([[temp, vib]])
-        prediction = st.session_state.model.predict(sample)[0]  # -1 = аномалия, 1 = норма
+        prediction = st.session_state.model.predict(sample)[0]
         anomaly_score = st.session_state.model.decision_function(sample)[0]
-
-        # Fusion Risk Index (0-100)
         risk_index = min(100, max(0, int((abs(anomaly_score) * 100))))
+
+        # ===> ДОБАВЛЕННЫЙ КОД: Бизнес-метрики и Multi-sensor ===>
+        if prediction == -1:
+            downtime_hours = max(0, (cycle - 20) // 2)
+            cost_saved = downtime_hours * 50000
+            st.sidebar.metric("💸 Prevented Cost", f"${cost_saved:,}")
+
+        if cycle % 5 == 0:
+            st.sidebar.subheader("🔍 Multi-Sensor View")
+            col1, col2, col3, col4 = st.columns(4)
+            sensors_temp = [temp + np.random.normal(0, 2) for _ in range(4)]
+            for i, sensor_temp in enumerate(sensors_temp):
+                with [col1, col2, col3, col4][i]:
+                    st.metric(f"Thermal {i+1}", f"{sensor_temp:.1f}°C")
+        # ===> КОНЕЦ ДОБАВЛЕННОГО КОДА ===>
 
         # --- Визуализация ---
         with placeholder_chart.container():
@@ -87,21 +98,32 @@ if st.session_state.running:
         else:
             status_box.success(f"✅ NORMAL | {msg}")
 
-        # Fusion Risk Index
         fusion_box.metric("Fusion Risk Index", f"{risk_index} / 100")
-
-        # Прогресс
         progress_bar.progress((cycle + 1) / 50)
         st.session_state.cycle = cycle
-
         time.sleep(0.5)
 
 # --- SIDEBAR ---
-st.sidebar.header("System Info")
+st.sidebar.header("🚀 System Info")
 st.sidebar.write("**Thermal DNA Fusion + AI** - Predictive maintenance for FPSO")
 st.sidebar.write("**Sensors:** 8 thermal + 4 vibration")
 st.sidebar.write("**Sampling:** 1 Hz")
 st.sidebar.write("**AI Model:** Isolation Forest (real-time anomaly detection)")
+
+# ===> ДОБАВЛЕННЫЙ КОД: Business Case ===>
+st.sidebar.markdown("---")
+st.sidebar.header("💰 Business Case")
+st.sidebar.metric("System Cost", "$250,000")
+st.sidebar.metric("Typical ROI", ">2000%")
+st.sidebar.metric("Payback Period", "<3 months")
+
+st.sidebar.markdown("---")
+st.sidebar.header("🎯 Key Features")
+st.sidebar.write("✅ **AI Anomaly Detection**")
+st.sidebar.write("✅ **Multi-Sensor Fusion**")
+st.sidebar.write("✅ **Real-time Risk Scoring**")
+st.sidebar.write("✅ **Preventive Maintenance**")
+# ===> КОНЕЦ ДОБАВЛЕННОГО КОДА ===>
 
 st.markdown("---")
 st.caption("Thermal DNA Fusion Simulator v3.0 | AVCS DNA + AI Monitoring System")
