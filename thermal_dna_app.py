@@ -1,10 +1,9 @@
-# thermal_dna_app.py - AVCS DNA Industrial Monitor v5.0
+# thermal_dna_app.py - AVCS DNA Industrial Monitor v5.1 (FIXED)
 import streamlit as st
 import numpy as np
 import pandas as pd
 import time
 from sklearn.ensemble import IsolationForest
-import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="AVCS DNA Industrial Monitor", layout="wide")
@@ -32,7 +31,6 @@ class IndustrialConfig:
         'DAMPER_RR': 'Rear-Right (LORD RD-8040)'
     }
 
-    # New acoustic monitoring
     ACOUSTIC_SENSOR = "Pump Acoustic Noise (dB)"
 
     VIBRATION_LIMITS = {'normal': 2.0, 'warning': 4.0, 'critical': 6.0}
@@ -42,7 +40,7 @@ class IndustrialConfig:
 
 
 # --- HEADER ---
-st.title("🏭 AVCS DNA - Industrial Monitoring System v5.0")
+st.title("🏭 AVCS DNA - Industrial Monitoring System v5.1")
 st.markdown("**Active Vibration Control System with AI-Powered Predictive Maintenance**")
 
 # --- STATE INIT ---
@@ -58,6 +56,8 @@ if "damper_forces" not in st.session_state:
     st.session_state.damper_forces = {damper: 0 for damper in IndustrialConfig.MR_DAMPERS.keys()}
 if "damper_history" not in st.session_state:
     st.session_state.damper_history = pd.DataFrame(columns=list(IndustrialConfig.MR_DAMPERS.keys()))
+if "risk_history" not in st.session_state:
+    st.session_state.risk_history = []
 if "ai_model" not in st.session_state:
     normal_vibration = np.random.normal(1.0, 0.3, (500, 4))
     normal_temperature = np.random.normal(65, 5, (500, 4))
@@ -77,6 +77,7 @@ with col1:
         st.session_state.noise_data = pd.DataFrame(columns=[IndustrialConfig.ACOUSTIC_SENSOR])
         st.session_state.damper_forces = {damper: IndustrialConfig.DAMPER_FORCES['standby'] for damper in IndustrialConfig.MR_DAMPERS.keys()}
         st.session_state.damper_history = pd.DataFrame(columns=list(IndustrialConfig.MR_DAMPERS.keys()))
+        st.session_state.risk_history = []
 with col2:
     if st.button("🛑 Emergency Stop", use_container_width=True):
         st.session_state.system_running = False
@@ -85,6 +86,22 @@ with col2:
 st.sidebar.markdown("---")
 st.sidebar.subheader("📊 System Status")
 status_indicator = st.sidebar.empty()
+
+# System Architecture
+st.sidebar.markdown("---")
+st.sidebar.subheader("🏭 System Architecture")
+st.sidebar.write("• 4x Vibration Sensors (PCB 603C01)")
+st.sidebar.write("• 4x Thermal Sensors (FLIR A500f)") 
+st.sidebar.write("• 1x Acoustic Sensor (NI 9234)")
+st.sidebar.write("• 4x MR Dampers (LORD RD-8040)")
+st.sidebar.write("• AI: Isolation Forest + Fusion Logic")
+
+# Business Case
+st.sidebar.markdown("---")
+st.sidebar.subheader("💰 Business Case")
+st.sidebar.metric("System Cost", "$250,000")
+st.sidebar.metric("Typical ROI", ">2000%")
+st.sidebar.metric("Payback Period", "<3 months")
 
 # --- DASHBOARD ---
 st.subheader("📈 Vibration Monitoring")
@@ -105,10 +122,15 @@ damper_chart = st.empty()
 damper_status_display = st.empty()
 
 st.subheader("🤖 AI Fusion Analysis")
-fusion_chart = st.empty()
-risk_indicator = st.empty()
-ai_confidence = st.empty()
-rul_display = st.empty()
+fusion_col1, fusion_col2, fusion_col3, fusion_col4 = st.columns([2, 1, 1, 1])
+with fusion_col1:
+    fusion_chart = st.empty()
+with fusion_col2:
+    risk_indicator = st.empty()
+with fusion_col3:
+    ai_confidence = st.empty()
+with fusion_col4:
+    rul_display = st.empty()
 
 # --- MAIN LOOP ---
 if st.session_state.system_running:
@@ -148,6 +170,9 @@ if st.session_state.system_running:
         # Remaining Useful Life (RUL)
         rul_hours = max(0, int(100 - risk_index * 0.9))
 
+        # Save risk history for chart
+        st.session_state.risk_history.append(risk_index)
+
         # Damper control
         if ai_prediction == -1 or risk_index > 80:
             damper_force = IndustrialConfig.DAMPER_FORCES['critical']
@@ -170,23 +195,27 @@ if st.session_state.system_running:
         st.session_state.damper_history.loc[cycle] = st.session_state.damper_forces
 
         # --- DISPLAY ---
+        # Vibration
         vib_chart.line_chart(st.session_state.vibration_data, height=200)
         with vib_status:
             for k, v in vibration.items():
                 color = "🟢" if v < 2 else "🟡" if v < 4 else "🔴"
                 st.write(f"{color} {IndustrialConfig.VIBRATION_SENSORS[k]}: {v:.1f} mm/s")
 
+        # Temperature
         temp_chart.line_chart(st.session_state.temperature_data, height=200)
         with temp_status:
             for k, v in temperature.items():
                 color = "🟢" if v < 70 else "🟡" if v < 85 else "🔴"
                 st.write(f"{color} {IndustrialConfig.THERMAL_SENSORS[k]}: {v:.0f} °C")
 
+        # Noise
         noise_chart.line_chart(st.session_state.noise_data, height=200)
         with noise_status:
             color = "🟢" if noise < 70 else "🟡" if noise < 85 else "🔴"
             st.write(f"{color} Noise Level: {noise:.1f} dB")
 
+        # Dampers
         damper_chart.line_chart(st.session_state.damper_history, height=200)
         with damper_status_display:
             cols = st.columns(4)
@@ -200,22 +229,34 @@ if st.session_state.system_running:
                     else:
                         st.success(f"🟢 {loc}\n{force} N")
 
-        # Fusion Risk Gauge
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=risk_index,
-            title={'text': "Risk Index"},
-            gauge={'axis': {'range': [0, 100]},
-                   'bar': {'color': "darkred"},
-                   'steps': [
-                       {'range': [0, 30], 'color': "lightgreen"},
-                       {'range': [30, 60], 'color': "yellow"},
-                       {'range': [60, 100], 'color': "red"}]}))
-        fusion_chart.plotly_chart(fig, use_container_width=True)
+        # AI Fusion Analysis - FIXED (no plotly)
+        with fusion_col1:
+            if len(st.session_state.risk_history) > 0:
+                risk_df = pd.DataFrame({
+                    'Risk Index': st.session_state.risk_history,
+                    'Critical Threshold': [80] * len(st.session_state.risk_history),
+                    'Warning Threshold': [50] * len(st.session_state.risk_history)
+                })
+                st.line_chart(risk_df, height=200)
 
-        risk_indicator.metric("🔴 Risk Index", f"{risk_index}/100")
-        ai_confidence.metric("🤖 AI Confidence", f"{abs(ai_conf):.2f}")
-        rul_display.metric("⏳ RUL Estimate", f"{rul_hours} h")
+        with fusion_col2:
+            if risk_index > 80:
+                risk_indicator.error(f"🔴 Risk\n{risk_index}/100")
+            elif risk_index > 50:
+                risk_indicator.warning(f"🟡 Risk\n{risk_index}/100")
+            else:
+                risk_indicator.success(f"🟢 Risk\n{risk_index}/100")
+
+        with fusion_col3:
+            ai_confidence.metric("🤖 AI Confidence", f"{abs(ai_conf):.2f}")
+
+        with fusion_col4:
+            if rul_hours < 24:
+                rul_display.error(f"⏳ RUL\n{rul_hours} h")
+            elif rul_hours < 72:
+                rul_display.warning(f"⏳ RUL\n{rul_hours} h")
+            else:
+                rul_display.success(f"⏳ RUL\n{rul_hours} h")
 
         status_indicator.markdown(f"<h3 style='color: {status_color};'>{system_status}</h3>", unsafe_allow_html=True)
 
@@ -225,4 +266,4 @@ if st.session_state.system_running:
         time.sleep(0.3)
 
 st.markdown("---")
-st.caption("AVCS DNA Industrial Monitor v5.0 | Yeruslan Technologies")
+st.caption("AVCS DNA Industrial Monitor v5.1 | Yeruslan Technologies | Predictive Maintenance System")
