@@ -42,7 +42,7 @@ class IndustrialConfig:
 
 # --- HEADER ---
 st.title("🏭 AVCS DNA - Industrial Monitoring System v5.2")
-st.markdown("**Active Vibration Control System with AI-Powered Predictive Maintenance**")
+st.markdown("**Active Vibration Control System DNA MATRIX SOUL with AI-Powered Predictive Maintenance**")
 
 # --- STATE INIT ---
 if "system_running" not in st.session_state:
