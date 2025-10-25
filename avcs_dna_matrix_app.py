@@ -1,4 +1,4 @@
-# thermal_dna_app.py - AVCS DNA Industrial Monitor v5.2
+# avcs_dna_matrix_app.py - AVCS DNA Industrial Monitor v5.2
 import streamlit as st
 import numpy as np
 import pandas as pd
