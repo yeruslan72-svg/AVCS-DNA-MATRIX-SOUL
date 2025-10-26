@@ -15,19 +15,96 @@ from plotly.subplots import make_subplots
 
 warnings.filterwarnings('ignore')
 
-# External modules (wrap imports to fail gracefully if module missing)
+# External modules (updated imports for actual modules)
 try:
-    from industrial_core.industrial_config import IndustrialConfig
-    from industrial_core.data_manager import DataManager
-    from industrial_core.safety_monitor import SafetyMonitor
-    from industrial_core.business_intelligence import BusinessIntelligence
-    from ai_engine.enhanced_ai import EnhancedAIModel
+    from industrial_core.data_manager import IndustrialConfig, DataManager
     from digital_twin.digital_twins import IndustrialDigitalTwin
-    from plc_integration.system_integrator import SoulPossessionIntegrator
-    from voice_system.english_voice_soul import EnglishVoicePersonality
-    from voice_system.voice_interface import EnglishVoiceInterface
-    from voice_system.emotional_display import EmotionalDisplay
-    from voice_system.emotional_soul import EmotionalSoul
+    from plc_integration.industrial_plc import create_avcs_plc_integration
+    from plc_integration.system_integrator import create_soul_integrator
+    from voice_system.english_voice_soul import create_english_voice_personality
+    from voice_system.voice_interface import create_voice_interface
+    from voice_system.emotional_display import create_emotional_display
+    
+    # Simple fallbacks for enhanced functionality
+    class SafetyMonitor:
+        def check_emergency_conditions(self, vibration, temperature, noise):
+            """Basic safety checks using config limits"""
+            emergencies = []
+            try:
+                # Check vibration limits
+                vib_limits = getattr(st.session_state.config_manager, 'VIBRATION_LIMITS', {'critical': 6.0})
+                for sensor, value in vibration.items():
+                    if value > vib_limits.get('critical', 6.0):
+                        emergencies.append(f"Vibration critical: {sensor} = {value:.1f}")
+                
+                # Check temperature limits
+                temp_limits = getattr(st.session_state.config_manager, 'TEMPERATURE_LIMITS', {'critical': 100})
+                for sensor, value in temperature.items():
+                    if value > temp_limits.get('critical', 100):
+                        emergencies.append(f"Temperature critical: {sensor} = {value:.1f}°C")
+                        
+            except Exception:
+                # Fallback basic checks
+                if any(v > 6.0 for v in vibration.values()):
+                    emergencies.append("Vibration critical")
+                if any(t > 100 for t in temperature.values()):
+                    emergencies.append("Temperature critical")
+            return emergencies
+    
+        def trigger_emergency_shutdown(self, conditions):
+            """Emergency shutdown procedure"""
+            st.session_state.system_running = False
+            st.session_state.damper_forces = {d: 0 for d in st.session_state.damper_forces.keys()}
+            print(f"EMERGENCY SHUTDOWN: {conditions}")
+    
+    class BusinessIntelligence:
+        def calculate_operational_efficiency(self, risk_history):
+            """Calculate operational efficiency metrics"""
+            if not risk_history:
+                return 85.0, 0.1, 0.05
+            
+            avg_risk = np.mean(risk_history)
+            warning_ratio = len([r for r in risk_history if r > 50]) / len(risk_history)
+            critical_ratio = len([r for r in risk_history if r > 80]) / len(risk_history)
+            efficiency = max(0, 100 - avg_risk)
+            return efficiency, warning_ratio, critical_ratio
+        
+        def calculate_roi(self, prevented_failures, operational_hours):
+            """Calculate ROI and cost savings"""
+            # Simplified ROI calculation
+            base_cost_per_failure = 50000  # Estimated cost of equipment failure
+            system_cost = 100000  # Estimated system cost
+            
+            cost_savings = prevented_failures * base_cost_per_failure
+            roi = ((cost_savings - system_cost) / system_cost) * 100 if system_cost > 0 else 0
+            
+            return max(0, roi), cost_savings
+    
+    class EnhancedAIModel:
+        def predict(self, features):
+            """AI prediction based on sensor features"""
+            if not features:
+                return 1, 0.5
+            
+            # Simple heuristic based on feature values
+            feature_sum = sum(features) if features else 0
+            feature_count = len(features)
+            
+            if feature_count == 0:
+                return 1, 0.5
+                
+            avg_feature = feature_sum / feature_count
+            
+            # Higher values indicate problems
+            if avg_feature > 5.0:
+                prediction = -1  # Problem detected
+                confidence = min(0.95, avg_feature / 10.0)
+            else:
+                prediction = 1   # Normal operation
+                confidence = max(0.5, 1.0 - (avg_feature / 10.0))
+            
+            return prediction, confidence
+
 except Exception as e:
     # For dev: allow file to load but mark missing pieces
     missing = str(e)
@@ -35,15 +112,24 @@ except Exception as e:
     # define minimal fallbacks to avoid NameError during static review
     IndustrialConfig = globals().get('IndustrialConfig', None)
     DataManager = globals().get('DataManager', None)
-    SafetyMonitor = globals().get('SafetyMonitor', None)
-    BusinessIntelligence = globals().get('BusinessIntelligence', None)
-    EnhancedAIModel = globals().get('EnhancedAIModel', None)
     IndustrialDigitalTwin = globals().get('IndustrialDigitalTwin', None)
-    SoulPossessionIntegrator = globals().get('SoulPossessionIntegrator', None)
-    EnglishVoicePersonality = globals().get('EnglishVoicePersonality', None)
-    EnglishVoiceInterface = globals().get('EnglishVoiceInterface', None)
-    EmotionalDisplay = globals().get('EmotionalDisplay', None)
-    EmotionalSoul = globals().get('EmotionalSoul', None)
+    create_avcs_plc_integration = globals().get('create_avcs_plc_integration', None)
+    create_soul_integrator = globals().get('create_soul_integrator', None)
+    create_english_voice_personality = globals().get('create_english_voice_personality', None)
+    create_voice_interface = globals().get('create_voice_interface', None)
+    create_emotional_display = globals().get('create_emotional_display', None)
+    
+    # Fallback classes
+    class SafetyMonitor:
+        def check_emergency_conditions(self, vibration, temperature, noise): return []
+        def trigger_emergency_shutdown(self, conditions): pass
+    
+    class BusinessIntelligence:
+        def calculate_operational_efficiency(self, risk_history): return 85.0, 0.1, 0.05
+        def calculate_roi(self, prevented_failures, operational_hours): return 150, 50000
+    
+    class EnhancedAIModel:
+        def predict(self, features): return 1, 0.8
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -113,20 +199,21 @@ def initialize_enhanced_system():
         st.error(f"DataManager init failed: {e}")
         st.session_state.data_manager = None
 
+    # Enhanced modules
     try:
-        st.session_state.safety_monitor = SafetyMonitor() if SafetyMonitor else None
+        st.session_state.safety_monitor = SafetyMonitor()
     except Exception as e:
         st.error(f"SafetyMonitor init failed: {e}")
         st.session_state.safety_monitor = None
 
     try:
-        st.session_state.business_intel = BusinessIntelligence() if BusinessIntelligence else None
+        st.session_state.business_intel = BusinessIntelligence()
     except Exception as e:
         st.error(f"BusinessIntel init failed: {e}")
         st.session_state.business_intel = None
 
     try:
-        st.session_state.enhanced_ai = EnhancedAIModel() if EnhancedAIModel else None
+        st.session_state.enhanced_ai = EnhancedAIModel()
     except Exception as e:
         st.error(f"EnhancedAIModel init failed: {e}")
         st.session_state.enhanced_ai = None
@@ -139,37 +226,38 @@ def initialize_enhanced_system():
         st.session_state.digital_twin = None
 
     try:
-        st.session_state.system_integrator = SoulPossessionIntegrator() if SoulPossessionIntegrator else None
+        st.session_state.plc_integrator = create_avcs_plc_integration() if create_avcs_plc_integration else None
+    except Exception as e:
+        st.error(f"PLC Integrator init failed: {e}")
+        st.session_state.plc_integrator = None
+
+    try:
+        st.session_state.system_integrator = create_soul_integrator() if create_soul_integrator else None
     except Exception as e:
         st.error(f"SystemIntegrator init failed: {e}")
         st.session_state.system_integrator = None
 
     # Voice and emotional systems - optional
     try:
-        st.session_state.voice_personality = EnglishVoicePersonality() if EnglishVoicePersonality else None
+        st.session_state.voice_personality = create_english_voice_personality() if create_english_voice_personality else None
     except Exception as e:
         st.session_state.voice_personality = None
 
     try:
-        st.session_state.voice_interface = EnglishVoiceInterface() if EnglishVoiceInterface else None
+        st.session_state.voice_interface = create_voice_interface() if create_voice_interface else None
     except Exception as e:
         st.session_state.voice_interface = None
 
     try:
-        st.session_state.emotional_display = EmotionalDisplay() if EmotionalDisplay else None
+        st.session_state.emotional_display = create_emotional_display() if create_emotional_display else None
     except Exception as e:
         st.session_state.emotional_display = None
-
-    try:
-        st.session_state.emotional_soul = EmotionalSoul() if EmotionalSoul else None
-    except Exception as e:
-        st.session_state.emotional_soul = None
 
     # Initialize damper forces
     if st.session_state.config_manager:
         st.session_state.damper_forces = {
             damper: st.session_state.config_manager.DAMPER_FORCES.get('standby', 0)
-            for damper in getattr(st.session_state.config_manager, 'MR_DAMPERS', {}).keys()
+            for damper in getattr(st.session_state.config_manager, 'VIBRATION_SENSORS', {}).keys()
         }
     else:
         st.session_state.damper_forces = {}
@@ -409,7 +497,7 @@ def create_combined_sensor_dashboard(data_dict):
     fig.update_layout(height=600, showlegend=True, title_text="Combined Sensor Dashboard")
     return fig
 
-def handle_voice_announcements(emotional_state, system_metrics, event_type=None):
+def handle_voice_announcements(system_metrics, event_type=None):
     """Handle English voice announcements safely (rate-limited)."""
     voice = st.session_state.get('voice_personality')
     interface = st.session_state.get('voice_interface')
@@ -423,7 +511,7 @@ def handle_voice_announcements(emotional_state, system_metrics, event_type=None)
         return
 
     try:
-        speech_text, tone = voice.generate_emotional_speech(emotional_state, system_metrics, event_type)
+        speech_text, tone = voice.generate_emotional_speech(system_metrics, event_type)
         should_speak = (
             event_type in ['RISK_HIGH', 'FAILURE_PREVENTED', 'CRITICAL_ALERT'] or
             system_metrics.get('risk_index', 0) > 70 or
@@ -499,30 +587,20 @@ def run_enhanced_monitoring_loop(status_indicator, cycle_display, performance_di
             risk_index = min(100, max(0, int(abs(ai_confidence) * 150 + np.random.normal(0, 5))))
             rul_hours = calculate_enhanced_rul(risk_index, current_cycle, vibration, temperature)
 
-            # Emotional state (best-effort)
-            system_metrics = {
-                'efficiency': calculate_efficiency(risk_index),
-                'prevented_failures': st.session_state.performance_metrics['prevented_failures'],
-                'risk_index': risk_index
-            }
-            operational_context = {
-                'operational_hours': current_cycle,
-                'successful_interventions': st.session_state.performance_metrics['prevented_failures'],
-                'total_interventions': current_cycle
-            }
+            # Emotional state from voice personality
             emotional_state = None
             try:
-                if st.session_state.get('emotional_soul'):
-                    emotional_state = st.session_state.emotional_soul.calculate_emotional_state(system_metrics, {'risk_index': risk_index}, operational_context)
+                if st.session_state.get('voice_personality'):
+                    emotional_state = st.session_state.voice_personality.emotional_state
                 else:
-                    emotional_state = {'mood': 'neutral'}
+                    emotional_state = {'core_mood': 'CONFIDENT', 'intensity': 0.7}
             except Exception:
-                emotional_state = {'mood': 'neutral'}
+                emotional_state = {'core_mood': 'CONFIDENT', 'intensity': 0.7}
 
             # Periodic voice announcements
             if current_cycle % 20 == 0:
                 event_type = 'RISK_HIGH' if risk_index > 80 else 'OPERATION_OPTIMAL' if risk_index < 20 else None
-                handle_voice_announcements(emotional_state, {'risk_index': risk_index}, event_type)
+                handle_voice_announcements({'risk_index': risk_index}, event_type)
 
             # Damper control
             damper_force = calculate_damper_force(risk_index, ai_prediction)
@@ -664,18 +742,17 @@ def update_enhanced_displays(risk_index, rul_hours, ai_confidence, current_cycle
 
     # Emotional display (best-effort)
     try:
-        if st.session_state.get('emotional_display') and st.session_state.get('emotional_soul'):
-            emotional_display_data = st.session_state.emotional_soul.get_emotional_display()
-            st.session_state.emotional_display.render_emotional_dashboard(emotional_state, emotional_display_data)
-    except Exception:
-        pass
+        if st.session_state.get('emotional_display') and emotional_state:
+            st.session_state.emotional_display.render_emotional_state(emotional_state)
+    except Exception as e:
+        st.warning(f"Emotional display error: {e}")
 
     # Voice control UI (best-effort)
     try:
         if st.session_state.get('voice_interface') and st.session_state.get('voice_personality'):
             st.session_state.voice_interface.render_voice_control_panel(st.session_state.voice_personality)
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Voice interface error: {e}")
 
 # --- MAIN APPLICATION ---
 def main():
@@ -697,7 +774,7 @@ def main():
             # reset data
             st.session_state.system_running = True
             st.session_state.data_dict = {'vibration': pd.DataFrame(), 'temperature': pd.DataFrame(), 'noise': pd.DataFrame(columns=['NOISE']), 'dampers': pd.DataFrame(), 'risk_history': []}
-            st.session_state.damper_forces = {d: st.session_state.config_manager.DAMPER_FORCES.get('standby', 500) for d in getattr(st.session_state.config_manager, 'MR_DAMPERS', {}).keys()} if st.session_state.get('config_manager') else {}
+            st.session_state.damper_forces = {d: st.session_state.config_manager.DAMPER_FORCES.get('standby', 500) for d in getattr(st.session_state.config_manager, 'VIBRATION_SENSORS', {}).keys()} if st.session_state.get('config_manager') else {}
             try:
                 if st.session_state.get('voice_personality'):
                     st.session_state.voice_personality.speak("AVCS Soul system activated. Beginning equipment monitoring operations.", "CALM")
@@ -715,8 +792,7 @@ def main():
             except Exception:
                 pass
             st.rerun()
-
-    st.sidebar.markdown("---")
+                st.sidebar.markdown("---")
     status_indicator = st.sidebar.empty()
     cycle_display = st.sidebar.empty()
     performance_display = st.sidebar.empty()
@@ -742,6 +818,19 @@ def main():
     except Exception:
         pass
 
+    # Voice system status
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎤 Voice System")
+    if st.session_state.get('voice_personality'):
+        voice_metrics = st.session_state.voice_personality.get_voice_metrics()
+        st.sidebar.metric("Total Speeches", voice_metrics['system_metrics']['total_speeches'])
+        st.sidebar.metric("Emergency Alerts", voice_metrics['system_metrics']['emergency_alerts'])
+        
+        emotional_state = voice_metrics['emotional_state']
+        st.sidebar.write(f"**Emotional State:** {emotional_state['core_mood']} ({int(emotional_state['intensity']*100)}%)")
+    else:
+        st.sidebar.info("Voice system not available")
+
     # Main
     if not st.session_state.system_running:
         show_landing_page()
@@ -750,3 +839,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    st.sidebar
