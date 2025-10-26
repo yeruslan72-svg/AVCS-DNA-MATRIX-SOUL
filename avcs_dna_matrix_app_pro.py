@@ -787,4 +787,4 @@ def main():
     """)
 
     # Sidebar and controls
-    st. sidebar.header("🎛️ AVCS DNA
+    st.sidebar.header("🎛️ AVCS DNA
