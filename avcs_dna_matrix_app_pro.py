@@ -787,4 +787,4 @@ def main():
     """)
 
     # Sidebar and controls
-    st.sidebar.header("🎛️ AVCS DNA Control Panel v
+    st.sidebar.header("🎛️ AVCS DNA Control Panel v1.0)
