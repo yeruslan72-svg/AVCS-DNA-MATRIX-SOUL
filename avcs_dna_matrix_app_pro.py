@@ -792,7 +792,8 @@ def main():
             except Exception:
                 pass
             st.rerun()
-                st.sidebar.markdown("---")
+
+    st.sidebar.markdown("---")
     status_indicator = st.sidebar.empty()
     cycle_display = st.sidebar.empty()
     performance_display = st.sidebar.empty()
@@ -839,5 +840,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-    st.sidebar
