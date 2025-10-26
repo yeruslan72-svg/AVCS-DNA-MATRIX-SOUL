@@ -787,8 +787,4 @@ def main():
     """)
 
     # Sidebar and controls
-    st.sidebar.header("🎛️ AVCS DNA Control Panel v6.0")
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        if
-    
+    st.sidebar.header("🎛️ AVCS DNA
