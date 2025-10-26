@@ -342,20 +342,32 @@ class EnglishVoicePersonality:
     
     def generate_emotional_speech(self, system_metrics, event_type=None):
         """Generate context-aware emotional speech"""
-        # Use the existing implementation with emotional state integration
         speech_text, tone = self._generate_speech_content(system_metrics, event_type)
         return self.speak(speech_text, tone)
     
     def _generate_speech_content(self, system_metrics, event_type):
         """Generate speech content based on system state"""
-        # Implementation from previous version
         templates = {
             'OPERATION_OPTIMAL': [
                 "All systems operating at peak efficiency!",
                 "Excellent performance across all monitored parameters!",
                 "Equipment running smoothly and efficiently!"
             ],
-            # ... other templates
+            'RISK_HIGH': [
+                "Critical situation detected! Immediate action required!",
+                "Emergency alert! System parameters exceeding safety limits!",
+                "Dangerous conditions detected! Emergency protocols activated!"
+            ],
+            'RISK_MEDIUM': [
+                "Elevated risk levels detected. Attention recommended.",
+                "System showing concerning patterns. Investigation advised.",
+                "Performance degradation detected. Preventive action suggested."
+            ],
+            'GREETING': [
+                "Hello! AVCS Soul system activated and ready!",
+                "Greetings! Equipment monitoring system online!",
+                "System ready! Beginning operational monitoring!"
+            ]
         }
         
         speech_key = self._select_speech_template(system_metrics, event_type)
