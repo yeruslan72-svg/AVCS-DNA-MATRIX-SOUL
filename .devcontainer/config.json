@@ -1,0 +1,37 @@
+{
+  "app": {
+    "version": "6.0",
+    "name": "AVCS DNA MATRIX SOUL",
+    "description": "Active Vibration Control System DNA MATRIX SOUL"
+  },
+  "sensors": {
+    "vibration": {
+      "VIB_MOTOR_DRIVE": "Motor Drive End",
+      "VIB_MOTOR_NONDRIVE": "Motor Non-Drive End",
+      "VIB_PUMP_INLET": "Pump Inlet Bearing",
+      "VIB_PUMP_OUTLET": "Pump Outlet Bearing"
+    },
+    "thermal": {
+      "TEMP_MOTOR_WINDING": "Motor Winding",
+      "TEMP_MOTOR_BEARING": "Motor Bearing",
+      "TEMP_PUMP_BEARING": "Pump Bearing",
+      "TEMP_PUMP_CASING": "Pump Casing"
+    }
+  },
+  "limits": {
+    "vibration": {"normal": 2.0, "warning": 4.0, "critical": 6.0, "emergency": 8.0},
+    "temperature": {"normal": 70, "warning": 85, "critical": 100, "emergency": 120},
+    "noise": {"normal": 70, "warning": 85, "critical": 100, "emergency": 120}
+  },
+  "damper_forces": {
+    "standby": 500,
+    "normal": 1000,
+    "warning": 4000,
+    "critical": 8000
+  },
+  "system": {
+    "data_retention": 200,
+    "refresh_rate": 0.3,
+    "max_cycles": 500
+  }
+}
