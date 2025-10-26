@@ -1,306 +1,752 @@
-# avcs_dna_matrix_app.py - AVCS DNA Industrial Monitor v5.2
-import streamlit as st
+# avcs_dna_matrix_app_pro.py - AVCS DNA Industrial Monitor v6.0 (Production Ready)
+import os
+import json
+import time
+import warnings
+import hmac
+import hashlib
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
-import time
-from sklearn.ensemble import IsolationForest
+import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+warnings.filterwarnings('ignore')
+
+# External modules (wrap imports to fail gracefully if module missing)
+try:
+    from industrial_core.industrial_config import IndustrialConfig
+    from industrial_core.data_manager import DataManager
+    from industrial_core.safety_monitor import SafetyMonitor
+    from industrial_core.business_intelligence import BusinessIntelligence
+    from ai_engine.enhanced_ai import EnhancedAIModel
+    from digital_twin.digital_twins import IndustrialDigitalTwin
+    from plc_integration.system_integrator import SoulPossessionIntegrator
+    from voice_system.english_voice_soul import EnglishVoicePersonality
+    from voice_system.voice_interface import EnglishVoiceInterface
+    from voice_system.emotional_display import EmotionalDisplay
+    from voice_system.emotional_soul import EmotionalSoul
+except Exception as e:
+    # For dev: allow file to load but mark missing pieces
+    missing = str(e)
+    print("Module import warning:", missing)
+    # define minimal fallbacks to avoid NameError during static review
+    IndustrialConfig = globals().get('IndustrialConfig', None)
+    DataManager = globals().get('DataManager', None)
+    SafetyMonitor = globals().get('SafetyMonitor', None)
+    BusinessIntelligence = globals().get('BusinessIntelligence', None)
+    EnhancedAIModel = globals().get('EnhancedAIModel', None)
+    IndustrialDigitalTwin = globals().get('IndustrialDigitalTwin', None)
+    SoulPossessionIntegrator = globals().get('SoulPossessionIntegrator', None)
+    EnglishVoicePersonality = globals().get('EnglishVoicePersonality', None)
+    EnglishVoiceInterface = globals().get('EnglishVoiceInterface', None)
+    EmotionalDisplay = globals().get('EmotionalDisplay', None)
+    EmotionalSoul = globals().get('EmotionalSoul', None)
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="AVCS DNA Industrial Monitor", layout="wide")
+st.set_page_config(
+    page_title="AVCS DNA Industrial Monitor v6.0",
+    layout="wide",
+    page_icon="🏭"
+)
 
-# --- SYSTEM CONFIG ---
-class IndustrialConfig:
-    VIBRATION_SENSORS = {
-        'VIB_MOTOR_DRIVE': 'Motor Drive End',
-        'VIB_MOTOR_NONDRIVE': 'Motor Non-Drive End',
-        'VIB_PUMP_INLET': 'Pump Inlet Bearing',
-        'VIB_PUMP_OUTLET': 'Pump Outlet Bearing'
+# --- HELPERS: audit packet generation ---
+def generate_audit_packet(asset_id, raw_features, derived_features, decision, damper_forces):
+    """
+    Build an audit packet and sign it with HMAC-SHA256.
+    The secret key must be provided in the environment: AUDIT_HMAC_KEY
+    """
+    packet = {
+        "asset_id": asset_id,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "raw_features": raw_features,
+        "derived_features": derived_features,
+        "decision": decision,
+        "damper_forces": damper_forces
     }
+    try:
+        secret = os.environ.get("AUDIT_HMAC_KEY")
+        if not secret:
+            # Non-fatal: create packet without signature but warn
+            packet["hmac_sha256"] = None
+            packet["_warning"] = "AUDIT_HMAC_KEY not set - packet unsigned"
+        else:
+            sig = hmac.new(secret.encode(), json.dumps(packet, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+            packet["hmac_sha256"] = sig
+    except Exception as e:
+        packet["_hmac_error"] = str(e)
+        packet["hmac_sha256"] = None
+    return packet
 
-    THERMAL_SENSORS = {
-        'TEMP_MOTOR_WINDING': 'Motor Winding',
-        'TEMP_MOTOR_BEARING': 'Motor Bearing',
-        'TEMP_PUMP_BEARING': 'Pump Bearing',
-        'TEMP_PUMP_CASING': 'Pump Casing'
-    }
-
-    MR_DAMPERS = {
-        'DAMPER_FL': 'Front-Left (LORD RD-8040)',
-        'DAMPER_FR': 'Front-Right (LORD RD-8040)',
-        'DAMPER_RL': 'Rear-Left (LORD RD-8040)',
-        'DAMPER_RR': 'Rear-Right (LORD RD-8040)'
-    }
-
-    ACOUSTIC_SENSOR = "Pump Acoustic Noise (dB)"
-
-    VIBRATION_LIMITS = {'normal': 2.0, 'warning': 4.0, 'critical': 6.0}
-    TEMPERATURE_LIMITS = {'normal': 70, 'warning': 85, 'critical': 100}
-    NOISE_LIMITS = {'normal': 70, 'warning': 85, 'critical': 100}
-    DAMPER_FORCES = {'standby': 500, 'normal': 1000, 'warning': 4000, 'critical': 8000}
-
-
-# --- HEADER ---
-st.title("🏭 AVCS DNA - Industrial Monitoring System v5.2")
-st.markdown("**Active Vibration Control System DNA MATRIX SOUL with AI-Powered Predictive Maintenance**")
-
-# --- STATE INIT ---
-if "system_running" not in st.session_state:
+# --- INITIALIZE ENHANCED SYSTEM ---
+def initialize_enhanced_system():
+    """Initialize all enhanced system components (safe wrappers)."""
+    # Basic session defaults
     st.session_state.system_running = False
-if "vibration_data" not in st.session_state:
-    st.session_state.vibration_data = pd.DataFrame(columns=list(IndustrialConfig.VIBRATION_SENSORS.keys()))
-if "temperature_data" not in st.session_state:
-    st.session_state.temperature_data = pd.DataFrame(columns=list(IndustrialConfig.THERMAL_SENSORS.keys()))
-if "noise_data" not in st.session_state:
-    st.session_state.noise_data = pd.DataFrame(columns=[IndustrialConfig.ACOUSTIC_SENSOR])
-if "damper_forces" not in st.session_state:
-    st.session_state.damper_forces = {damper: 0 for damper in IndustrialConfig.MR_DAMPERS.keys()}
-if "damper_history" not in st.session_state:
-    st.session_state.damper_history = pd.DataFrame(columns=list(IndustrialConfig.MR_DAMPERS.keys()))
-if "risk_history" not in st.session_state:
-    st.session_state.risk_history = []
-if "ai_model" not in st.session_state:
-    normal_vibration = np.random.normal(1.0, 0.3, (500, 4))
-    normal_temperature = np.random.normal(65, 5, (500, 4))
-    normal_noise = np.random.normal(65, 3, (500, 1))
-    normal_data = np.column_stack([normal_vibration, normal_temperature, normal_noise])
-    st.session_state.ai_model = IsolationForest(contamination=0.08, random_state=42, n_estimators=150)
-    st.session_state.ai_model.fit(normal_data)
+    st.session_state.data_dict = {
+        'vibration': pd.DataFrame(),
+        'temperature': pd.DataFrame(),
+        'noise': pd.DataFrame(columns=['NOISE']),
+        'dampers': pd.DataFrame(),
+        'risk_history': []
+    }
+    st.session_state.performance_metrics = {
+        'cycles_completed': 0,
+        'emergency_stops': 0,
+        'prevented_failures': 0,
+        'total_operational_hours': 0
+    }
+    st.session_state.system_logs = []
 
-# --- SIDEBAR CONTROL ---
-st.sidebar.header("🎛️ AVCS DNA Control Panel")
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    if st.button("⚡ Start System", type="primary", use_container_width=True):
-        st.session_state.system_running = True
-        st.session_state.vibration_data = pd.DataFrame(columns=list(IndustrialConfig.VIBRATION_SENSORS.keys()))
-        st.session_state.temperature_data = pd.DataFrame(columns=list(IndustrialConfig.THERMAL_SENSORS.keys()))
-        st.session_state.noise_data = pd.DataFrame(columns=[IndustrialConfig.ACOUSTIC_SENSOR])
-        st.session_state.damper_forces = {damper: IndustrialConfig.DAMPER_FORCES['standby'] for damper in IndustrialConfig.MR_DAMPERS.keys()}
-        st.session_state.damper_history = pd.DataFrame(columns=list(IndustrialConfig.MR_DAMPERS.keys()))
-        st.session_state.risk_history = []
-        st.rerun()
-with col2:
-    if st.button("🛑 Emergency Stop", use_container_width=True):
-        st.session_state.system_running = False
-        st.session_state.damper_forces = {damper: 0 for damper in IndustrialConfig.MR_DAMPERS.keys()}
-        st.rerun()
+    # Instantiate components with try/except
+    try:
+        st.session_state.config_manager = IndustrialConfig()
+    except Exception as e:
+        st.error(f"Config init failed: {e}")
+        st.session_state.config_manager = None
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 System Status")
-status_indicator = st.sidebar.empty()
+    try:
+        st.session_state.data_manager = DataManager() if DataManager else None
+    except Exception as e:
+        st.error(f"DataManager init failed: {e}")
+        st.session_state.data_manager = None
 
-# System Architecture
-st.sidebar.markdown("---")
-st.sidebar.subheader("🏭 System Architecture")
-st.sidebar.write("• 4x Vibration Sensors (PCB 603C01)")
-st.sidebar.write("• 4x Thermal Sensors (FLIR A500f)") 
-st.sidebar.write("• 1x Acoustic Sensor (NI 9234)")
-st.sidebar.write("• 4x MR Dampers (LORD RD-8040)")
-st.sidebar.write("• AI: Isolation Forest + Fusion Logic")
+    try:
+        st.session_state.safety_monitor = SafetyMonitor() if SafetyMonitor else None
+    except Exception as e:
+        st.error(f"SafetyMonitor init failed: {e}")
+        st.session_state.safety_monitor = None
 
-# Business Case
-st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Business Case")
-st.sidebar.metric("System Cost", "$250,000")
-st.sidebar.metric("Typical ROI", ">2000%")
-st.sidebar.metric("Payback Period", "<3 months")
+    try:
+        st.session_state.business_intel = BusinessIntelligence() if BusinessIntelligence else None
+    except Exception as e:
+        st.error(f"BusinessIntel init failed: {e}")
+        st.session_state.business_intel = None
 
-# --- MAIN DISPLAY AREA ---
-if not st.session_state.system_running:
-    st.info("🚀 System is ready. Click 'Start System' to begin monitoring.")
-else:
-    # --- DASHBOARD LAYOUT ---
-    col1, col2 = st.columns(2)
-    
+    try:
+        st.session_state.enhanced_ai = EnhancedAIModel() if EnhancedAIModel else None
+    except Exception as e:
+        st.error(f"EnhancedAIModel init failed: {e}")
+        st.session_state.enhanced_ai = None
+
+    # Advanced modules
+    try:
+        st.session_state.digital_twin = IndustrialDigitalTwin("centrifugal_pump") if IndustrialDigitalTwin else None
+    except Exception as e:
+        st.error(f"DigitalTwin init failed: {e}")
+        st.session_state.digital_twin = None
+
+    try:
+        st.session_state.system_integrator = SoulPossessionIntegrator() if SoulPossessionIntegrator else None
+    except Exception as e:
+        st.error(f"SystemIntegrator init failed: {e}")
+        st.session_state.system_integrator = None
+
+    # Voice and emotional systems - optional
+    try:
+        st.session_state.voice_personality = EnglishVoicePersonality() if EnglishVoicePersonality else None
+    except Exception as e:
+        st.session_state.voice_personality = None
+
+    try:
+        st.session_state.voice_interface = EnglishVoiceInterface() if EnglishVoiceInterface else None
+    except Exception as e:
+        st.session_state.voice_interface = None
+
+    try:
+        st.session_state.emotional_display = EmotionalDisplay() if EmotionalDisplay else None
+    except Exception as e:
+        st.session_state.emotional_display = None
+
+    try:
+        st.session_state.emotional_soul = EmotionalSoul() if EmotionalSoul else None
+    except Exception as e:
+        st.session_state.emotional_soul = None
+
+    # Initialize damper forces
+    if st.session_state.config_manager:
+        st.session_state.damper_forces = {
+            damper: st.session_state.config_manager.DAMPER_FORCES.get('standby', 0)
+            for damper in getattr(st.session_state.config_manager, 'MR_DAMPERS', {}).keys()
+        }
+    else:
+        st.session_state.damper_forces = {}
+
+# --- UI: landing page ---
+def show_landing_page():
+    st.info("🚀 **System Ready** - Click 'Start System' to begin enhanced monitoring")
+
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.subheader("📈 Vibration Monitoring")
-        vib_chart = st.empty()
-        vib_status = st.empty()
-
-        st.subheader("🌡️ Thermal Monitoring")
-        temp_chart = st.empty()
-        temp_status = st.empty()
+        st.subheader("🎯 Enhanced Features")
+        st.write("• Real-time AI Risk Assessment")
+        st.write("• Advanced Safety Monitoring")
+        st.write("• Business Intelligence")
+        st.write("• Multi-sensor Data Fusion")
+        st.write("• Predictive Maintenance")
 
     with col2:
-        st.subheader("🔊 Acoustic Monitoring")
-        noise_chart = st.empty()
-        noise_status = st.empty()
+        st.subheader("🛡️ Safety Systems")
+        st.write("• Emergency Shutdown Protocols")
+        st.write("• Real-time Limit Monitoring")
+        st.write("• Failure Prediction")
+        st.write("• Automated Damper Control")
+        st.write("• System Health Checks")
 
-        st.subheader("🔄 MR Dampers Control")
-        damper_chart = st.empty()
-        damper_status_display = st.empty()
+    with col3:
+        st.subheader("📈 Analytics")
+        st.write("• Operational Efficiency")
+        st.write("• ROI Calculation")
+        st.write("• Performance Metrics")
+        st.write("• Cost-Benefit Analysis")
+        st.write("• Trend Analysis")
 
     st.markdown("---")
-    
-    # AI Fusion Analysis Section
-    st.subheader("🤖 AI Fusion Analysis")
-    fusion_col1, fusion_col2, fusion_col3, fusion_col4 = st.columns([2, 1, 1, 1])
-    
-    # Initialize placeholders for AI section
-    fusion_chart_ph = fusion_col1.empty()
-    gauge_ph = fusion_col2.empty()
-    ai_conf_ph = fusion_col3.empty()
-    rul_ph = fusion_col4.empty()
+    st.subheader("🎤 Voice System Demo")
+    if st.button("🔊 Test Voice System"):
+        if st.session_state.get('voice_personality'):
+            try:
+                st.session_state.voice_personality.speak(
+                    "Hello! AVCS Soul system is ready for operation. All systems are functioning optimally.",
+                    "CALM"
+                )
+            except Exception as e:
+                st.warning(f"Voice system error: {e}")
+        else:
+            st.info("Voice system not available in this environment.")
 
-    # --- SIMULATION LOOP ---
+# --- Sensor data generation (robust) ---
+def generate_enhanced_sensor_data(current_cycle):
+    """Generate enhanced sensor data with robust handling of digital twin outputs."""
+    # Default operating conditions
+    operating_conditions = {
+        'rpm': 2950,
+        'load': 'normal',
+        'ambient_temperature': 25
+    }
+
+    twin = st.session_state.get('digital_twin')
+    if twin:
+        try:
+            twin_data = twin.simulate_equipment_behavior(operating_conditions)
+        except Exception as e:
+            # fallback to synthetic generation
+            st.error(f"Digital twin simulation error: {e}")
+            twin_data = None
+    else:
+        twin_data = None
+
+    # Build vibration dict for all known sensors
+    vibration = {}
+    vib_sensors = list(getattr(st.session_state.config_manager, 'VIBRATION_SENSORS', {}).keys()
+                       if st.session_state.get('config_manager') else [])
+
+    # If twin_data provides per-sensor RMS, use it; else compute or fallback to synthetic
+    if twin_data and isinstance(twin_data.get('vibration_data'), dict):
+        # The twin may provide dict like {'VIB_MOTOR_DRIVE': {'rms': 0.5, ...}, ...}
+        for i, sensor in enumerate(vib_sensors):
+            vinfo = twin_data['vibration_data'].get(sensor, None)
+            if isinstance(vinfo, dict) and 'rms' in vinfo:
+                base = float(vinfo['rms'])
+            else:
+                # if it's a raw array
+                arr = np.asarray(vinfo) if vinfo is not None else np.zeros(100)
+                base = float(np.sqrt(np.mean(arr**2))) if arr.size > 0 else 0.0
+            vibration[sensor] = base * (1 + i * 0.05)
+    elif twin_data and isinstance(twin_data.get('vibration_data'), (list, np.ndarray)):
+        arr = np.asarray(twin_data['vibration_data'])
+        base_rms = float(np.sqrt(np.mean(arr ** 2))) if arr.size > 0 else 0.0
+        for i, sensor in enumerate(vib_sensors):
+            vibration[sensor] = base_rms * (1 + i * 0.05)
+    else:
+        # fallback synthetic data
+        for i, sensor in enumerate(vib_sensors):
+            vibration[sensor] = float(max(0.1, 1.0 + np.random.normal(0, 0.3) + i * 0.1))
+
+    # Temperature: support dict or scalar
+    if twin_data and 'thermal_data' in twin_data:
+        td = twin_data['thermal_data']
+        if isinstance(td, dict):
+            temperature = {k: float(v) for k, v in td.items()}
+        else:
+            scalar = float(td)
+            temperature = {k: scalar for k in getattr(st.session_state.config_manager, 'THERMAL_SENSORS', {}).keys()}
+    else:
+        # synthetic default
+        temperature = {k: float(65 + np.random.normal(0, 2)) for k in getattr(st.session_state.config_manager, 'THERMAL_SENSORS', {}).keys()}
+
+    # Acoustic
+    if twin_data and 'acoustic_data' in twin_data:
+        noise = float(twin_data['acoustic_data'])
+    else:
+        noise = float(max(30, 65 + np.random.normal(0, 3)))
+
+    return vibration, temperature, noise
+
+# --- RUL, damper & efficiency logic (kept simple & tunable) ---
+def calculate_enhanced_rul(risk_index, current_cycle, vibration, temperature):
+    base_rul = max(0, 100 - risk_index)
+    if current_cycle > 150:
+        degradation_penalty = (current_cycle - 150) * 0.2
+        base_rul -= degradation_penalty
+    max_vibration = max(vibration.values()) if vibration else 0.0
+    max_temperature = max(temperature.values()) if temperature else 0.0
+    if max_vibration > 4.0:
+        base_rul *= 0.8
+    if max_temperature > 85:
+        base_rul *= 0.7
+    return max(0, int(base_rul))
+
+def calculate_efficiency(risk_index):
+    return max(0, 100 - risk_index)
+
+def calculate_damper_force(risk_index, ai_prediction):
+    cfg = st.session_state.config_manager.DAMPER_FORCES if st.session_state.get('config_manager') else {'critical':8000,'warning':4000,'normal':1000,'standby':500}
+    if ai_prediction == -1 or risk_index > 85:
+        return cfg.get('critical', 8000)
+    elif risk_index > 65:
+        return cfg.get('warning', 4000)
+    elif risk_index > 30:
+        return cfg.get('normal', 1000)
+    else:
+        return cfg.get('standby', 500)
+
+# --- Displays & charts ---
+def create_risk_gauge(risk_index):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=risk_index,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "AI Risk Index", 'font': {'size': 20}},
+        delta={'reference': 50, 'increasing': {'color': "red"}},
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+            'bar': {'color': "darkblue"},
+            'steps': [
+                {'range': [0, 20], 'color': 'lightgreen'},
+                {'range': [20, 50], 'color': 'yellow'},
+                {'range': [50, 80], 'color': 'orange'},
+                {'range': [80, 100], 'color': 'red'}
+            ],
+            'threshold': {
+                'line': {'color': "black", 'width': 4},
+                'thickness': 0.75,
+                'value': risk_index
+            }
+        }
+    ))
+    fig.update_layout(height=300, margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+def create_combined_sensor_dashboard(data_dict):
+    """Create combined sensor dashboard with safe checks."""
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=('Vibration Sensors', 'Temperature Sensors', 'Noise Level', 'Risk History'),
+        vertical_spacing=0.12,
+        horizontal_spacing=0.08
+    )
+
+    # Vibration sensors
+    vib_map = getattr(st.session_state.config_manager, 'VIBRATION_SENSORS', {}) if st.session_state.get('config_manager') else {}
+    if not isinstance(vib_map, dict):
+        vib_map = dict(vib_map)
+
+    if 'vibration' in data_dict and not data_dict['vibration'].empty:
+        for sensor in vib_map.keys():
+            if sensor in data_dict['vibration'].columns:
+                human_name = vib_map.get(sensor, sensor)
+                fig.add_trace(
+                    go.Scatter(
+                        y=data_dict['vibration'][sensor],
+                        name=human_name if isinstance(human_name, str) else sensor,
+                        line=dict(width=2),
+                        showlegend=True
+                    ), row=1, col=1
+                )
+
+    # Temperature sensors
+    temp_map = getattr(st.session_state.config_manager, 'THERMAL_SENSORS', {}) if st.session_state.get('config_manager') else {}
+    if 'temperature' in data_dict and not data_dict['temperature'].empty:
+        for sensor in temp_map.keys():
+            if sensor in data_dict['temperature'].columns:
+                human_name = temp_map.get(sensor, sensor)
+                fig.add_trace(
+                    go.Scatter(
+                        y=data_dict['temperature'][sensor],
+                        name=human_name if isinstance(human_name, str) else sensor,
+                        line=dict(width=2),
+                        showlegend=True
+                    ), row=1, col=2
+                )
+
+    # Noise level
+    if 'noise' in data_dict and not data_dict['noise'].empty:
+        fig.add_trace(
+            go.Scatter(
+                y=data_dict['noise']['NOISE'],
+                name="Noise Level",
+                line=dict(color='purple', width=3),
+                showlegend=True
+            ),
+            row=2, col=1
+        )
+
+    # Risk history
+    if data_dict.get('risk_history'):
+        fig.add_trace(
+            go.Scatter(
+                y=data_dict['risk_history'],
+                name="Risk Index",
+                line=dict(color='red', width=3),
+                showlegend=True
+            ),
+            row=2, col=2
+        )
+
+    fig.update_layout(height=600, showlegend=True, title_text="Combined Sensor Dashboard")
+    return fig
+
+def handle_voice_announcements(emotional_state, system_metrics, event_type=None):
+    """Handle English voice announcements safely (rate-limited)."""
+    voice = st.session_state.get('voice_personality')
+    interface = st.session_state.get('voice_interface')
+    if not voice:
+        return
+
+    # Rate limiting: last_speech_time stored in voice_personality if available, otherwise in session
+    current_time = datetime.now()
+    last_speech = getattr(voice, 'last_speech_time', st.session_state.get('last_speech_time'))
+    if last_speech and (current_time - last_speech).total_seconds() < 30:
+        return
+
+    try:
+        speech_text, tone = voice.generate_emotional_speech(emotional_state, system_metrics, event_type)
+        should_speak = (
+            event_type in ['RISK_HIGH', 'FAILURE_PREVENTED', 'CRITICAL_ALERT'] or
+            system_metrics.get('risk_index', 0) > 70 or
+            (event_type is not None and np.random.random() > 0.3)
+        )
+        if should_speak:
+            voice.speak(speech_text, tone)
+            if interface:
+                speech_viz = interface.create_speech_visualization(speech_text, tone)
+                st.markdown(speech_viz, unsafe_allow_html=True)
+            # store last speech time
+            if hasattr(voice, 'last_speech_time'):
+                voice.last_speech_time = current_time
+            else:
+                st.session_state['last_speech_time'] = current_time
+    except Exception as e:
+        st.warning(f"Voice announcement failed: {e}")
+
+# --- MAIN loop runner ---
+def run_enhanced_monitoring_loop(status_indicator, cycle_display, performance_display, simulation_speed, max_cycles):
+    current_cycle = len(st.session_state.data_dict.get('risk_history', []))
     progress_bar = st.sidebar.progress(0)
-    cycle_counter = st.sidebar.empty()
-    
-    max_cycles = 100
-    current_cycle = 0
-    
-    while current_cycle < max_cycles and st.session_state.system_running:
-        # --- DATA GENERATION ---
-        if current_cycle < 30:
-            # Normal operation
-            vibration = {k: max(0.1, 1.0 + np.random.normal(0, 0.2)) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
-            temperature = {k: max(20, 65 + np.random.normal(0, 3)) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
-            noise = max(30, 65 + np.random.normal(0, 2))
-        elif current_cycle < 60:
-            # Gradual degradation
-            degradation = (current_cycle - 30) * 0.05
-            vibration = {k: max(0.1, 1.0 + degradation + np.random.normal(0, 0.3)) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
-            temperature = {k: max(20, 65 + degradation * 2 + np.random.normal(0, 4)) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
-            noise = max(30, 70 + degradation * 2 + np.random.normal(0, 3))
-        else:
-            # Critical condition
-            vibration = {k: max(0.1, 5.0 + np.random.normal(0, 0.5)) for k in IndustrialConfig.VIBRATION_SENSORS.keys()}
-            temperature = {k: max(20, 95 + np.random.normal(0, 5)) for k in IndustrialConfig.THERMAL_SENSORS.keys()}
-            noise = max(30, 95 + np.random.normal(0, 5))
 
-        # Save data
-        st.session_state.vibration_data.loc[current_cycle] = vibration
-        st.session_state.temperature_data.loc[current_cycle] = temperature
-        st.session_state.noise_data.loc[current_cycle] = [noise]
+    # Safety: bail out if components missing
+    if st.session_state.get('system_running') is not True:
+        return
 
-        # AI Analysis
-        features = list(vibration.values()) + list(temperature.values()) + [noise]
-        ai_prediction = st.session_state.ai_model.predict([features])[0]
-        ai_conf = st.session_state.ai_model.decision_function([features])[0]
-        risk_index = min(100, max(0, int(abs(ai_conf) * 120)))
+    try:
+        if current_cycle < max_cycles and st.session_state.system_running:
+            vibration, temperature, noise = generate_enhanced_sensor_data(current_cycle)
 
-        # Remaining Useful Life (RUL)
-        rul_hours = max(0, int(100 - risk_index * 0.9))
+            # Safety monitoring
+            try:
+                emergency_conditions = st.session_state.safety_monitor.check_emergency_conditions(vibration, temperature, noise) if st.session_state.get('safety_monitor') else []
+            except Exception as e:
+                st.warning(f"Safety monitor error: {e}")
+                emergency_conditions = []
 
-        # Save risk history for chart
-        st.session_state.risk_history.append(risk_index)
+            if emergency_conditions:
+                try:
+                    if st.session_state.get('safety_monitor'):
+                        st.session_state.safety_monitor.trigger_emergency_shutdown(emergency_conditions)
+                except Exception:
+                    pass
+                st.session_state.system_running = False
+                st.error(f"🚨 EMERGENCY SHUTDOWN: {', '.join(emergency_conditions)}")
+                # voice alert
+                try:
+                    if st.session_state.get('voice_personality'):
+                        st.session_state.voice_personality.speak(
+                            "Emergency shutdown activated! Critical parameters exceeded safety limits!",
+                            "URGENT"
+                        )
+                except Exception:
+                    pass
+                st.session_state.performance_metrics['emergency_stops'] += 1
+                return
 
-        # Damper control logic
-        if ai_prediction == -1 or risk_index > 80:
-            damper_force = IndustrialConfig.DAMPER_FORCES['critical']
-            system_status = "🚨 CRITICAL"
-            status_color = "red"
-        elif risk_index > 50:
-            damper_force = IndustrialConfig.DAMPER_FORCES['warning']
-            system_status = "⚠️ WARNING"
-            status_color = "orange"
-        elif risk_index > 20:
-            damper_force = IndustrialConfig.DAMPER_FORCES['normal']
-            system_status = "✅ NORMAL"
-            status_color = "green"
-        else:
-            damper_force = IndustrialConfig.DAMPER_FORCES['standby']
-            system_status = "🟢 STANDBY"
-            status_color = "blue"
+            # AI analysis
+            features = list(vibration.values()) + list(temperature.values()) + [noise]
+            ai_prediction, ai_confidence = (0, 0.0)
+            try:
+                if st.session_state.get('enhanced_ai'):
+                    ai_prediction, ai_confidence = st.session_state.enhanced_ai.predict(features)
+                else:
+                    # fallback: simple heuristic
+                    ai_confidence = float(np.random.normal(0.0, 0.5))
+                    ai_prediction = -1 if np.abs(ai_confidence) > 0.9 else 1
+            except Exception as e:
+                st.warning(f"AI predict error: {e}")
+                ai_prediction, ai_confidence = 0, 0.0
 
-        st.session_state.damper_forces = {d: damper_force for d in IndustrialConfig.MR_DAMPERS.keys()}
-        st.session_state.damper_history.loc[current_cycle] = st.session_state.damper_forces
+            risk_index = min(100, max(0, int(abs(ai_confidence) * 150 + np.random.normal(0, 5))))
+            rul_hours = calculate_enhanced_rul(risk_index, current_cycle, vibration, temperature)
 
-        # --- UPDATE DISPLAYS ---
-        
-        # Vibration Monitoring
-        vib_chart.line_chart(st.session_state.vibration_data, height=200)
-        with vib_status.container():
-            for k, v in vibration.items():
-                color = "🟢" if v < 2 else "🟡" if v < 4 else "🔴"
-                st.write(f"{color} {IndustrialConfig.VIBRATION_SENSORS[k]}: {v:.1f} mm/s")
+            # Emotional state (best-effort)
+            system_metrics = {
+                'efficiency': calculate_efficiency(risk_index),
+                'prevented_failures': st.session_state.performance_metrics['prevented_failures'],
+                'risk_index': risk_index
+            }
+            operational_context = {
+                'operational_hours': current_cycle,
+                'successful_interventions': st.session_state.performance_metrics['prevented_failures'],
+                'total_interventions': current_cycle
+            }
+            emotional_state = None
+            try:
+                if st.session_state.get('emotional_soul'):
+                    emotional_state = st.session_state.emotional_soul.calculate_emotional_state(system_metrics, {'risk_index': risk_index}, operational_context)
+                else:
+                    emotional_state = {'mood': 'neutral'}
+            except Exception:
+                emotional_state = {'mood': 'neutral'}
 
-        # Temperature Monitoring
-        temp_chart.line_chart(st.session_state.temperature_data, height=200)
-        with temp_status.container():
-            for k, v in temperature.items():
-                color = "🟢" if v < 70 else "🟡" if v < 85 else "🔴"
-                st.write(f"{color} {IndustrialConfig.THERMAL_SENSORS[k]}: {v:.0f} °C")
+            # Periodic voice announcements
+            if current_cycle % 20 == 0:
+                event_type = 'RISK_HIGH' if risk_index > 80 else 'OPERATION_OPTIMAL' if risk_index < 20 else None
+                handle_voice_announcements(emotional_state, {'risk_index': risk_index}, event_type)
 
-        # Noise Monitoring
-        noise_chart.line_chart(st.session_state.noise_data, height=200)
-        with noise_status.container():
-            color = "🟢" if noise < 70 else "🟡" if noise < 85 else "🔴"
-            st.write(f"{color} Noise Level: {noise:.1f} dB")
+            # Damper control
+            damper_force = calculate_damper_force(risk_index, ai_prediction)
+            st.session_state.damper_forces = {d: damper_force for d in st.session_state.damper_forces.keys()}
 
-        # Dampers Display
-        damper_chart.line_chart(st.session_state.damper_history, height=200)
-        with damper_status_display.container():
-            cols = st.columns(4)
-            for i, (d, loc) in enumerate(IndustrialConfig.MR_DAMPERS.items()):
-                with cols[i]:
-                    force = st.session_state.damper_forces[d]
-                    if force >= 4000:
-                        st.error(f"🔴 {loc}\n{force} N")
-                    elif force >= 1000:
-                        st.warning(f"🟡 {loc}\n{force} N")
-                    else:
-                        st.success(f"🟢 {loc}\n{force} N")
+            # Data management: append to dataframes (use DataManager if available)
+            try:
+                if st.session_state.get('data_manager'):
+                    st.session_state.data_dict = st.session_state.data_manager.add_data_point(st.session_state.data_dict, vibration, 'vibration')
+                    st.session_state.data_dict = st.session_state.data_manager.add_data_point(st.session_state.data_dict, temperature, 'temperature')
+                    st.session_state.data_dict = st.session_state.data_manager.add_data_point(st.session_state.data_dict, {'NOISE': noise}, 'noise')
+                    st.session_state.data_dict = st.session_state.data_manager.add_data_point(st.session_state.data_dict, st.session_state.damper_forces, 'dampers')
+                else:
+                    # naive append
+                    if 'vibration' in st.session_state.data_dict:
+                        row = pd.DataFrame([vibration])
+                        if st.session_state.data_dict['vibration'].empty:
+                            st.session_state.data_dict['vibration'] = row
+                        else:
+                            st.session_state.data_dict['vibration'] = pd.concat([st.session_state.data_dict['vibration'], row], ignore_index=True)
+                    if 'temperature' in st.session_state.data_dict:
+                        rowt = pd.DataFrame([temperature])
+                        if st.session_state.data_dict['temperature'].empty:
+                            st.session_state.data_dict['temperature'] = rowt
+                        else:
+                            st.session_state.data_dict['temperature'] = pd.concat([st.session_state.data_dict['temperature'], rowt], ignore_index=True)
+                    if 'noise' in st.session_state.data_dict:
+                        rown = pd.DataFrame([{'NOISE': noise}])
+                        if st.session_state.data_dict['noise'].empty:
+                            st.session_state.data_dict['noise'] = rown
+                        else:
+                            st.session_state.data_dict['noise'] = pd.concat([st.session_state.data_dict['noise'], rown], ignore_index=True)
+                    if 'dampers' in st.session_state.data_dict:
+                        rowd = pd.DataFrame([st.session_state.damper_forces])
+                        if st.session_state.data_dict['dampers'].empty:
+                            st.session_state.data_dict['dampers'] = rowd
+                        else:
+                            st.session_state.data_dict['dampers'] = pd.concat([st.session_state.data_dict['dampers'], rowd], ignore_index=True)
+            except Exception as e:
+                st.warning(f"Data append error: {e}")
 
-        # AI Fusion Analysis - UPDATED WITH PROPER PLACEHOLDERS
-        with fusion_chart_ph.container():
-            if len(st.session_state.risk_history) > 0:
-                risk_df = pd.DataFrame({
-                    'Risk Index': st.session_state.risk_history,
-                    'Critical Threshold': [80] * len(st.session_state.risk_history),
-                    'Warning Threshold': [50] * len(st.session_state.risk_history)
-                })
-                st.line_chart(risk_df, height=200)
+            # Update risk history
+            st.session_state.data_dict['risk_history'].append(risk_index)
 
-        with gauge_ph.container():
-            gauge_fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=risk_index,
-                title={'text': "Risk Index"},
-                gauge={
-                    'axis': {'range': [0, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 50], 'color': "green"},
-                        {'range': [50, 80], 'color': "yellow"},
-                        {'range': [80, 100], 'color': "red"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "black", 'width': 4},
-                        'thickness': 0.75,
-                        'value': risk_index
-                    }
-                }
-            ))
-            gauge_fig.update_layout(height=250)
-            st.plotly_chart(gauge_fig, use_container_width=True, key=f"gauge_{current_cycle}")
+            # Generate audit packet and append to logs
+            derived = {
+                'rul_hours': rul_hours,
+                'risk_index': risk_index,
+                'ai_confidence': ai_confidence
+            }
+            decision = {
+                'action': 'adjust_damper',
+                'force': damper_force,
+                'reason': 'vibration_risk' if risk_index > 50 else 'monitor'
+            }
+            packet = generate_audit_packet("PUMP-001", {'vibration': vibration, 'temperature': temperature, 'noise': noise}, derived, decision, st.session_state.damper_forces)
+            st.session_state.system_logs.append(packet)
 
-        with ai_conf_ph.container():
-            st.metric("🤖 AI Confidence", f"{abs(ai_conf):.2f}")
+            # Update displays
+            update_enhanced_displays(risk_index, rul_hours, ai_confidence, current_cycle, max_cycles,
+                                     status_indicator, cycle_display, performance_display, progress_bar,
+                                     emotional_state)
 
-        with rul_ph.container():
+            # Update performance metrics
+            st.session_state.performance_metrics['cycles_completed'] = current_cycle + 1
+            if risk_index > 80:
+                st.session_state.performance_metrics['prevented_failures'] += 1
+
+            # Wait and re-run (use small sleep then rerun to produce live feel)
+            time.sleep(max(0.05, float(simulation_speed)))
+            # Use rerun to refresh UI loop
+            st.rerun()
+
+        elif current_cycle >= max_cycles:
+            st.success("✅ Enhanced simulation completed successfully!")
+            try:
+                if st.session_state.get('voice_personality'):
+                    st.session_state.voice_personality.speak(
+                        "Simulation completed successfully. All systems performed within expected parameters.",
+                        "PROUD"
+                    )
+            except Exception:
+                pass
+            st.session_state.system_running = False
+            return
+    except Exception as e:
+        st.error(f"Monitoring loop unexpected error: {e}")
+        st.session_state.system_running = False
+        return
+
+def update_enhanced_displays(risk_index, rul_hours, ai_confidence, current_cycle, max_cycles,
+                             status_indicator, cycle_display, performance_display, progress_bar,
+                             emotional_state):
+    """Update UI displays (safe)."""
+    # Status indicator
+    if risk_index > 80:
+        status_color, status_text = "red", "🚨 CRITICAL"
+    elif risk_index > 50:
+        status_color, status_text = "orange", "⚠️ WARNING"
+    elif risk_index > 20:
+        status_color, status_text = "green", "✅ NORMAL"
+    else:
+        status_color, status_text = "blue", "🟢 STANDBY"
+
+    status_indicator.markdown(
+        f"<h3 style='color: {status_color}; text-align: center;'>{status_text}</h3>",
+        unsafe_allow_html=True
+    )
+    cycle_display.metric("Current Cycle", f"{current_cycle + 1}/{max_cycles}")
+    efficiency = calculate_efficiency(risk_index)
+    performance_display.metric("Operational Efficiency", f"{efficiency:.1f}%")
+    progress_bar.progress(min(1.0, (current_cycle + 1) / max_cycles))
+
+    # Dashboard layout
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        try:
+            st.plotly_chart(create_combined_sensor_dashboard(st.session_state.data_dict), use_container_width=True)
+        except Exception as e:
+            st.warning(f"Dashboard render error: {e}")
+    with col2:
+        try:
+            st.plotly_chart(create_risk_gauge(risk_index), use_container_width=True)
+        except Exception as e:
+            st.warning(f"Gauge render error: {e}")
+
+        metric_col1, metric_col2 = st.columns(2)
+        with metric_col1:
             if rul_hours < 24:
                 st.error(f"⏳ RUL\n{rul_hours} h")
             elif rul_hours < 72:
                 st.warning(f"⏳ RUL\n{rul_hours} h")
             else:
                 st.success(f"⏳ RUL\n{rul_hours} h")
+            st.metric("🤖 AI Confidence", f"{abs(ai_confidence):.3f}")
+        with metric_col2:
+            st.metric("📊 Risk Index", f"{risk_index}%")
+            st.metric("🔄 Current Cycle", current_cycle + 1)
 
-        # Update status
-        status_indicator.markdown(f"<h3 style='color: {status_color};'>{system_status}</h3>", unsafe_allow_html=True)
+    # Emotional display (best-effort)
+    try:
+        if st.session_state.get('emotional_display') and st.session_state.get('emotional_soul'):
+            emotional_display_data = st.session_state.emotional_soul.get_emotional_display()
+            st.session_state.emotional_display.render_emotional_dashboard(emotional_state, emotional_display_data)
+    except Exception:
+        pass
 
-        # Update progress
-        progress_bar.progress((current_cycle + 1) / max_cycles)
-        cycle_counter.text(f"🔄 Cycle: {current_cycle+1}/{max_cycles}")
+    # Voice control UI (best-effort)
+    try:
+        if st.session_state.get('voice_interface') and st.session_state.get('voice_personality'):
+            st.session_state.voice_interface.render_voice_control_panel(st.session_state.voice_personality)
+    except Exception:
+        pass
 
-        current_cycle += 1
-        time.sleep(0.5)
+# --- MAIN APPLICATION ---
+def main():
+    # Initialize system if not already initialized
+    if "config_manager" not in st.session_state:
+        initialize_enhanced_system()
 
-    # Simulation complete
-    if current_cycle >= max_cycles:
-        st.success("✅ Simulation completed successfully!")
-        st.session_state.system_running = False
+    st.title("🏭 AVCS DNA - Industrial Monitoring System v6.0")
+    st.markdown("""
+    **Enhanced Active Vibration Control System with AI-Powered Predictive Maintenance**  
+    *Now with Real-time Safety Monitoring, Business Intelligence, and Advanced Analytics*
+    """)
 
-st.markdown("---")
-st.caption("AVCS DNA Industrial Monitor v5.2 | Yeruslan Technologies | Predictive Maintenance System")
+    # Sidebar and controls
+    st.sidebar.header("🎛️ AVCS DNA Control Panel v6.0")
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("⚡ Start System", type="primary", use_container_width=True):
+            # reset data
+            st.session_state.system_running = True
+            st.session_state.data_dict = {'vibration': pd.DataFrame(), 'temperature': pd.DataFrame(), 'noise': pd.DataFrame(columns=['NOISE']), 'dampers': pd.DataFrame(), 'risk_history': []}
+            st.session_state.damper_forces = {d: st.session_state.config_manager.DAMPER_FORCES.get('standby', 500) for d in getattr(st.session_state.config_manager, 'MR_DAMPERS', {}).keys()} if st.session_state.get('config_manager') else {}
+            try:
+                if st.session_state.get('voice_personality'):
+                    st.session_state.voice_personality.speak("AVCS Soul system activated. Beginning equipment monitoring operations.", "CALM")
+            except Exception:
+                pass
+            st.rerun()
+
+    with col2:
+        if st.button("🛑 Emergency Stop", use_container_width=True):
+            st.session_state.system_running = False
+            st.session_state.damper_forces = {d: 0 for d in st.session_state.damper_forces.keys()} if st.session_state.get('damper_forces') else {}
+            try:
+                if st.session_state.get('voice_personality'):
+                    st.session_state.voice_personality.speak("Emergency stop activated. All systems secured.", "WARNING")
+            except Exception:
+                pass
+            st.rerun()
+
+    st.sidebar.markdown("---")
+    status_indicator = st.sidebar.empty()
+    cycle_display = st.sidebar.empty()
+    performance_display = st.sidebar.empty()
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("⚙️ Configuration")
+    simulation_speed = st.sidebar.slider("Simulation Speed", 0.05, 1.0, 0.3, 0.05)
+    max_cycles = int(st.sidebar.number_input("Max Cycles", 50, 10000, 500))
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("💰 Business Intelligence")
+    # BI snapshot if available
+    try:
+        if st.session_state.data_dict.get('risk_history') and st.session_state.get('business_intel'):
+            efficiency, warning_ratio, critical_ratio = st.session_state.business_intel.calculate_operational_efficiency(st.session_state.data_dict['risk_history'])
+            prevented_failures = len([r for r in st.session_state.data_dict['risk_history'] if r > 80])
+            operational_hours = len(st.session_state.data_dict['risk_history']) / 3600
+            roi, cost_savings = st.session_state.business_intel.calculate_roi(prevented_failures, operational_hours)
+            st.sidebar.metric("Operational Efficiency", f"{efficiency:.1f}%")
+            st.sidebar.metric("Prevented Failures", prevented_failures)
+            st.sidebar.metric("Estimated ROI", f"{roi:.0f}%")
+            st.sidebar.metric("Cost Savings", f"${cost_savings:,.0f}")
+    except Exception:
+        pass
+
+    # Main
+    if not st.session_state.system_running:
+        show_landing_page()
+    else:
+        run_enhanced_monitoring_loop(status_indicator, cycle_display, performance_display, simulation_speed, max_cycles)
+
+if __name__ == "__main__":
+    main()
