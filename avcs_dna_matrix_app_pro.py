@@ -1,3 +1,35 @@
+# avcs_dna_matrix_app_pro.py - AVCS DNA Industrial Monitor v6.0 (Production Ready)
+import os
+import json
+import time
+import warnings
+import hmac
+import hashlib
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+warnings.filterwarnings('ignore')
+
+# [ВСТАВЬ СЮДА ВЕСЬ ПРЕДЫДУЩИЙ КОД ДО ФУНКЦИИ main()...]
+# ... весь твой предыдущий код с классами и функциями ...
+
+# --- MAIN APPLICATION ---
+def main():
+    # Initialize system if not already initialized
+    if "config_manager" not in st.session_state:
+        initialize_enhanced_system()
+
+    st.title("🏭 AVCS DNA - Industrial Monitoring System v6.0")
+    st.markdown("""
+    **Enhanced Active Vibration Control System with AI-Powered Predictive Maintenance**  
+    *Now with Real-time Safety Monitoring, Business Intelligence, and Advanced Analytics*
+    """)
+
     # Sidebar and controls
     st.sidebar.header("🎛️ AVCS DNA Control Panel v6.0")
     
@@ -24,12 +56,13 @@
     with control_col2:
         if st.button("🛑 Emergency Stop", use_container_width=True):
             st.session_state.system_running = False
-            st.session_state.damper_forces = {
-                damper: st.session_state.config_manager.DAMPER_FORCES.get('standby', 0) 
-                if st.session_state.get('config_manager') 
-                else 0 
-                for damper in st.session_state.damper_forces.keys()
-            }
+            if st.session_state.get('config_manager'):
+                st.session_state.damper_forces = {
+                    damper: st.session_state.config_manager.DAMPER_FORCES.get('standby', 0)
+                    for damper in st.session_state.damper_forces.keys()
+                }
+            else:
+                st.session_state.damper_forces = {k: 0 for k in st.session_state.damper_forces.keys()}
             st.rerun()
 
     st.sidebar.markdown("---")
