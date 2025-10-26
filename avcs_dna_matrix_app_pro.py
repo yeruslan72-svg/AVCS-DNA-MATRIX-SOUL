@@ -429,7 +429,7 @@ def create_risk_gauge(risk_index):
     return fig
 
 def create_combined_sensor_dashboard(data_dict):
-    """Create combined sensor dashboard with safe checks."""
+    """Create combined sensor dashboard with proper data handling"""
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=('Vibration Sensors', 'Temperature Sensors', 'Noise Level', 'Risk History'),
@@ -437,41 +437,46 @@ def create_combined_sensor_dashboard(data_dict):
         horizontal_spacing=0.08
     )
 
-    # Vibration sensors
+    # Vibration sensors - FIXED: Use actual DataFrame columns
     vib_map = getattr(st.session_state.config_manager, 'VIBRATION_SENSORS', {}) if st.session_state.get('config_manager') else {}
-    if not isinstance(vib_map, dict):
-        vib_map = dict(vib_map)
-
+    
     if 'vibration' in data_dict and not data_dict['vibration'].empty:
-        for sensor in vib_map.keys():
-            if sensor in data_dict['vibration'].columns:
-                human_name = vib_map.get(sensor, sensor)
-                fig.add_trace(
-                    go.Scatter(
-                        y=data_dict['vibration'][sensor],
-                        name=human_name if isinstance(human_name, str) else sensor,
-                        line=dict(width=2),
-                        showlegend=True
-                    ), row=1, col=1
-                )
+        # Use actual column names from dataframe instead of config keys
+        for sensor in data_dict['vibration'].columns:
+            human_name = vib_map.get(sensor, sensor)
+            fig.add_trace(
+                go.Scatter(
+                    y=data_dict['vibration'][sensor],
+                    name=human_name,
+                    line=dict(width=2),
+                    showlegend=True
+                ), row=1, col=1
+            )
+    else:
+        # Add empty trace if no data to maintain layout
+        fig.add_trace(go.Scatter(x=[], y=[], name="No Vibration Data"), row=1, col=1)
 
-    # Temperature sensors
+    # Temperature sensors - FIXED: Use actual DataFrame columns  
     temp_map = getattr(st.session_state.config_manager, 'THERMAL_SENSORS', {}) if st.session_state.get('config_manager') else {}
+    
     if 'temperature' in data_dict and not data_dict['temperature'].empty:
-        for sensor in temp_map.keys():
-            if sensor in data_dict['temperature'].columns:
-                human_name = temp_map.get(sensor, sensor)
-                fig.add_trace(
-                    go.Scatter(
-                        y=data_dict['temperature'][sensor],
-                        name=human_name if isinstance(human_name, str) else sensor,
-                        line=dict(width=2),
-                        showlegend=True
-                    ), row=1, col=2
-                )
+        # Use actual column names from dataframe instead of config keys
+        for sensor in data_dict['temperature'].columns:
+            human_name = temp_map.get(sensor, sensor)
+            fig.add_trace(
+                go.Scatter(
+                    y=data_dict['temperature'][sensor],
+                    name=human_name,
+                    line=dict(width=2),
+                    showlegend=True
+                ), row=1, col=2
+            )
+    else:
+        # Add empty trace if no data to maintain layout
+        fig.add_trace(go.Scatter(x=[], y=[], name="No Temperature Data"), row=1, col=2)
 
-    # Noise level
-    if 'noise' in data_dict and not data_dict['noise'].empty:
+    # Noise level - FIXED: Check column exists
+    if 'noise' in data_dict and not data_dict['noise'].empty and 'NOISE' in data_dict['noise'].columns:
         fig.add_trace(
             go.Scatter(
                 y=data_dict['noise']['NOISE'],
@@ -481,6 +486,8 @@ def create_combined_sensor_dashboard(data_dict):
             ),
             row=2, col=1
         )
+    else:
+        fig.add_trace(go.Scatter(x=[], y=[], name="No Noise Data"), row=2, col=1)
 
     # Risk history
     if data_dict.get('risk_history'):
@@ -493,6 +500,19 @@ def create_combined_sensor_dashboard(data_dict):
             ),
             row=2, col=2
         )
+    else:
+        fig.add_trace(go.Scatter(x=[], y=[], name="No Risk Data"), row=2, col=2)
+
+    # Update axis labels for better readability
+    fig.update_xaxes(title_text="Time", row=1, col=1)
+    fig.update_xaxes(title_text="Time", row=1, col=2)
+    fig.update_xaxes(title_text="Time", row=2, col=1)
+    fig.update_xaxes(title_text="Time", row=2, col=2)
+    
+    fig.update_yaxes(title_text="Vibration (mm/s)", row=1, col=1)
+    fig.update_yaxes(title_text="Temperature (°C)", row=1, col=2)
+    fig.update_yaxes(title_text="Noise (dB)", row=2, col=1)
+    fig.update_yaxes(title_text="Risk Index", row=2, col=2)
 
     fig.update_layout(height=600, showlegend=True, title_text="Combined Sensor Dashboard")
     return fig
@@ -770,73 +790,5 @@ def main():
     st.sidebar.header("🎛️ AVCS DNA Control Panel v6.0")
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        if st.button("⚡ Start System", type="primary", use_container_width=True):
-            # reset data
-            st.session_state.system_running = True
-            st.session_state.data_dict = {'vibration': pd.DataFrame(), 'temperature': pd.DataFrame(), 'noise': pd.DataFrame(columns=['NOISE']), 'dampers': pd.DataFrame(), 'risk_history': []}
-            st.session_state.damper_forces = {d: st.session_state.config_manager.DAMPER_FORCES.get('standby', 500) for d in getattr(st.session_state.config_manager, 'VIBRATION_SENSORS', {}).keys()} if st.session_state.get('config_manager') else {}
-            try:
-                if st.session_state.get('voice_personality'):
-                    st.session_state.voice_personality.speak("AVCS Soul system activated. Beginning equipment monitoring operations.", "CALM")
-            except Exception:
-                pass
-            st.rerun()
-
-    with col2:
-        if st.button("🛑 Emergency Stop", use_container_width=True):
-            st.session_state.system_running = False
-            st.session_state.damper_forces = {d: 0 for d in st.session_state.damper_forces.keys()} if st.session_state.get('damper_forces') else {}
-            try:
-                if st.session_state.get('voice_personality'):
-                    st.session_state.voice_personality.speak("Emergency stop activated. All systems secured.", "WARNING")
-            except Exception:
-                pass
-            st.rerun()
-
-    st.sidebar.markdown("---")
-    status_indicator = st.sidebar.empty()
-    cycle_display = st.sidebar.empty()
-    performance_display = st.sidebar.empty()
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("⚙️ Configuration")
-    simulation_speed = st.sidebar.slider("Simulation Speed", 0.05, 1.0, 0.3, 0.05)
-    max_cycles = int(st.sidebar.number_input("Max Cycles", 50, 10000, 500))
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("💰 Business Intelligence")
-    # BI snapshot if available
-    try:
-        if st.session_state.data_dict.get('risk_history') and st.session_state.get('business_intel'):
-            efficiency, warning_ratio, critical_ratio = st.session_state.business_intel.calculate_operational_efficiency(st.session_state.data_dict['risk_history'])
-            prevented_failures = len([r for r in st.session_state.data_dict['risk_history'] if r > 80])
-            operational_hours = len(st.session_state.data_dict['risk_history']) / 3600
-            roi, cost_savings = st.session_state.business_intel.calculate_roi(prevented_failures, operational_hours)
-            st.sidebar.metric("Operational Efficiency", f"{efficiency:.1f}%")
-            st.sidebar.metric("Prevented Failures", prevented_failures)
-            st.sidebar.metric("Estimated ROI", f"{roi:.0f}%")
-            st.sidebar.metric("Cost Savings", f"${cost_savings:,.0f}")
-    except Exception:
-        pass
-
-    # Voice system status
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🎤 Voice System")
-    if st.session_state.get('voice_personality'):
-        voice_metrics = st.session_state.voice_personality.get_voice_metrics()
-        st.sidebar.metric("Total Speeches", voice_metrics['system_metrics']['total_speeches'])
-        st.sidebar.metric("Emergency Alerts", voice_metrics['system_metrics']['emergency_alerts'])
-        
-        emotional_state = voice_metrics['emotional_state']
-        st.sidebar.write(f"**Emotional State:** {emotional_state['core_mood']} ({int(emotional_state['intensity']*100)}%)")
-    else:
-        st.sidebar.info("Voice system not available")
-
-    # Main
-    if not st.session_state.system_running:
-        show_landing_page()
-    else:
-        run_enhanced_monitoring_loop(status_indicator, cycle_display, performance_display, simulation_speed, max_cycles)
-
-if __name__ == "__main__":
-    main()
+        if
+    
